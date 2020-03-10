@@ -70,7 +70,7 @@ let read mem addr =
     else
       Cartridge.read cart addr
   | 0x8000 | 0x9000 ->
-    Gpu.vram_read gpu addr
+    Gpu.vram_read gpu (addr - 0x8000)
   | op when 0xFF80 <= addr && addr <= 0xFFFE ->
     Some (Char.code (Bytes.get high_ram (addr - 0xFF80)))
   | op -> match addr with
@@ -86,7 +86,9 @@ let write mem addr v =
   let { gpu; sound; high_ram; cart } = mem in
   match addr land 0xF000 with
   | 0x8000 | 0x9000 ->
-    Gpu.vram_write gpu addr v |> Option.map (fun gpu -> { mem with gpu })
+    Gpu.vram_write gpu (addr - 0x8000) v |> Option.map (fun gpu ->
+      { mem with gpu }
+    )
   | op when 0xFF80 <= addr && addr <= 0xFFFE ->
     Bytes.set high_ram (addr - 0xFF80) (Char.chr v);
     Some mem
@@ -117,10 +119,10 @@ let write mem addr v =
     Gpu.set_lcdc
       gpu
       (v land 0x80 <> 0)
-      (if v land 0x40 <> 0 then 0x9C00 else 0x9800)
+      (if v land 0x40 <> 0 then 0x1C00 else 0x1800)
       (v land 0x20 <> 0)
-      (if v land 0x10 <> 0 then 0x8000 else 0x8800)
-      (if v land 0x08 <> 0 then 0x9C00 else 0x9800)
+      (if v land 0x10 <> 0 then 0x0000 else 0x0800)
+      (if v land 0x08 <> 0 then 0x1C00 else 0x1800)
       (v land 0x01 <> 0)
       (if v land 0x04 <> 0 then 16 else 8)
       (v land 0x02 <> 0)

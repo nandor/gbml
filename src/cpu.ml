@@ -192,7 +192,7 @@ let execute_alu8 op f op0 op1 =
   | Adc -> failwith "not implemented: Adc"
 
   | Sub ->
-    let v = op1 - op0 in
+    let v = op0 - op1 in
     let z = (v land 0xFF) = 0 in
     let h = (op0 land 0x0F) < (v land 0xF) in
     let c = v < 0x00 in

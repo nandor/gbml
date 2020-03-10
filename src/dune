@@ -1,3 +1,4 @@
 
 (executable
-  (name gbc_ml))
+  (name gbc_ml)
+  (libraries graphics unix))
