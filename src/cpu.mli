@@ -5,7 +5,7 @@
 type t
 
 (* Initialises the CPU *)
-val create : Memory.t -> t
+val create : System.t -> t
 
 (* Executes a step of an instruction *)
-val step : t -> t option
+val tick : t -> t option

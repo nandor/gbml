@@ -7,12 +7,12 @@ let () =
   let cart = Cartridge.load (Sys.argv.(1)) in
   let gpu = Gpu.create () in
   let sound = Sound.create () in
-  let mem = Memory.create cart gpu sound in
+  let mem = System.create cart gpu sound in
   let cpu = Cpu.create mem in
 
   (* Main loop *)
   let rec loop cpu =
-    match Cpu.step cpu with
+    match Cpu.tick cpu with
     | None ->  ()
     | Some cpu' -> loop cpu'
   in loop cpu

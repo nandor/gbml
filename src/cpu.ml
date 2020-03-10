@@ -174,7 +174,7 @@ type uop =
 type t =
   { r: r
   ; f: f
-  ; m: Memory.t
+  ; s: System.t
   ; ei: bool
   ; uop: uop
   }
@@ -220,11 +220,22 @@ let execute_alu8 op f op0 op1 =
     let v = op1 in
     v, f
 
+  | Rlc -> failwith "not implemented: Rlc"
+  | Rrc -> failwith "not implemented: Rrc"
+
   | Rl ->
     let l = if c then 1 else 0 in
     let c = (op1 land 0x80) <> 0 in
     let v = ((op1 lsl 1) lor l) land 0xFF in
     v, { z = v = 0; n = false; h = false; c }
+
+  | Rr -> failwith "not implemented: Rr"
+  | Sla -> failwith "not implemented: Sla"
+  | Sra -> failwith "not implemented: Sra"
+  | Swap -> failwith "not implemented: Swap"
+  | Srl -> failwith "not implemented: Srl"
+  | Res _ -> failwith "not implemented: Res"
+  | Set _ -> failwith "not implemented: Set"
 
   | Inc ->
     let v = (op1 + 1) land 0xFF in
@@ -337,7 +348,7 @@ let decode_mov_d16_r8 cpu reg rw =
     uop = U_MOV_D16_R8_M2(reg, rw)
   }
 
-let create m =
+let create s =
   { r =
     { pc = 0x0000
     ; sp = 0x0000
@@ -356,19 +367,18 @@ let create m =
     ; h = false
     ; c = false
     }
-  ; m
+  ; s
   ; ei = false
   ; uop = U_FETCH
   }
 
 let step cpu =
-  let { uop; r; m; f } = cpu in
+  let { uop; r; s; f } = cpu in
   match uop with
   | U_FETCH ->
-    (match Memory.read m r.pc with
+    (match System.read s r.pc with
     | None -> None
     | Some op ->
-      Printf.eprintf "State: %x %x %x %x\n" r.pc op r.e r.a;
       (match op with
       | 0x01 -> decode_ld_r16_d16 cpu R16S_BC
       | 0x03 -> decode_alu16      cpu Inc R16S_BC R16S_BC
@@ -580,7 +590,7 @@ let step cpu =
       )
     )
   | U_CB ->
-    (match Memory.read m r.pc with
+    (match System.read s r.pc with
     | None -> None
     | Some op ->
       (match op with
@@ -620,7 +630,7 @@ let step cpu =
         | R16_DE -> (r.d lsl 8) lor r.e
         | R16_HL -> (r.h lsl 8) lor r.l
       in
-      Memory.read m addr |> Option.map (fun v ->
+      System.read s addr |> Option.map (fun v ->
         let r =
           match dst with
           | R8_B -> { r with b = v }
@@ -634,7 +644,7 @@ let step cpu =
         { cpu with r; uop = U_FETCH }
       )
   | U_LD_R16_D16_M2 reg ->
-    Memory.read m r.pc |> Option.map (fun v ->
+    System.read s r.pc |> Option.map (fun v ->
       let pc = r.pc + 1 in
       let r = match reg with
         | R16S_BC -> { r with pc; c = v }
@@ -645,7 +655,7 @@ let step cpu =
       { cpu with r; uop = U_LD_R16_D16_M3 reg }
     )
   | U_LD_R16_D16_M3 reg ->
-    Memory.read m r.pc |> Option.map (fun v ->
+    System.read s r.pc |> Option.map (fun v ->
       let pc = r.pc + 1 in
       let r = match reg with
         | R16S_BC -> { r with pc; b = v }
@@ -656,7 +666,7 @@ let step cpu =
       { cpu with r; uop = U_FETCH }
     )
   | U_JR_M2 cc ->
-    Memory.read m r.pc |> Option.map (fun off ->
+    System.read s r.pc |> Option.map (fun off ->
       let taken = match cc with
         | CC_Z -> f.z
         | CC_NZ -> not f.z
@@ -678,7 +688,7 @@ let step cpu =
   | U_ST_HL_M2(op, d) ->
     let v = get_reg_8 r d in
     let addr = (r.h lsl 8) lor r.l in
-    Memory.write m addr v |> Option.map (fun m ->
+    System.write s addr v |> Option.map (fun s ->
       let hl =
         match op with
         | D_Nop -> addr
@@ -689,12 +699,12 @@ let step cpu =
       let l = (hl land 0x00FF) lsr 0 in
       { cpu with
         r = { r with h; l };
-        m;
+        s;
         uop = U_FETCH
       }
     )
   | U_LD_R8_D8_M2 d ->
-    Memory.read m r.pc |> Option.map (fun v ->
+    System.read s r.pc |> Option.map (fun v ->
       let pc = r.pc + 1 in
       { cpu with
         uop = U_FETCH;
@@ -702,11 +712,11 @@ let step cpu =
       }
     )
   | U_ST_C_M2 ->
-    Memory.write m (0xFF00 + r.c) r.a |> Option.map (fun m ->
-      { cpu with m; uop = U_FETCH }
+    System.write s (0xFF00 + r.c) r.a |> Option.map (fun s ->
+      { cpu with s; uop = U_FETCH }
     )
   | U_MOV_D8_M2 rw ->
-    Memory.read m r.pc |> Option.map (fun a ->
+    System.read s r.pc |> Option.map (fun a ->
       { cpu with
         r = { r with pc = r.pc + 1 };
         uop = match rw with
@@ -715,19 +725,19 @@ let step cpu =
       }
     )
   | U_MOV_D8_M3_W a ->
-    Memory.write m (0xFF00 + a) r.a |> Option.map (fun m ->
-      { cpu with m; uop = U_FETCH }
+    System.write s (0xFF00 + a) r.a |> Option.map (fun s ->
+      { cpu with s; uop = U_FETCH }
     )
   | U_MOV_D8_M3_R a ->
-    Memory.read m (0xFF00 + a) |> Option.map (fun a ->
+    System.read s (0xFF00 + a) |> Option.map (fun a ->
       { cpu with r = { r with a }; uop = U_FETCH }
     )
   | U_CALL_M2 cc ->
-    Memory.read m r.pc |> Option.map (fun lo ->
+    System.read s r.pc |> Option.map (fun lo ->
       { cpu with r = {r with pc = r.pc + 1}; uop = U_CALL_M3(cc, lo) }
     )
   | U_CALL_M3(cc, lo) ->
-    Memory.read m r.pc |> Option.map (fun hi ->
+    System.read s r.pc |> Option.map (fun hi ->
       let taken = match cc with
         | CC_Z -> f.z
         | CC_NZ -> not f.z
@@ -746,17 +756,17 @@ let step cpu =
   | U_CALL_M5(lo, hi) ->
     let pc_hi = (r.pc lsr 8) land 0xFF in
     let pc_lo = (r.pc lsr 0) land 0xFF in
-    Memory.write m r.sp pc_hi |> Option.map (fun m ->
+    System.write s r.sp pc_hi |> Option.map (fun s ->
       let sp = (r.sp - 1) land 0xFFFF in
       let pc = (hi lsl 8) lor pc_lo in
-      { cpu with r = { r with pc; sp}; m; uop = U_CALL_M6 lo }
+      { cpu with r = { r with pc; sp}; s; uop = U_CALL_M6 lo }
     )
   | U_CALL_M6 lo ->
     let pc_hi = (r.pc lsr 8) land 0xFF in
     let pc_lo = (r.pc lsr 0) land 0xFF in
-    Memory.write m r.sp pc_lo |> Option.map (fun m ->
+    System.write s r.sp pc_lo |> Option.map (fun s ->
       let pc = (pc_hi lsl 8) lor lo in
-      { cpu with r = { r with pc }; m; uop = U_FETCH }
+      { cpu with r = { r with pc }; s; uop = U_FETCH }
     )
   | U_PUSH_M2 dd ->
     let sp = (r.sp - 1) land 0xFFFF in
@@ -768,10 +778,10 @@ let step cpu =
       | R16P_HL -> r.h
       | R16P_AF -> r.a
     in
-    Memory.write m r.sp v |> Option.map (fun m ->
+    System.write s r.sp v |> Option.map (fun s ->
       { cpu with
         r = { r with sp = (r.sp - 1) land 0xFFFF };
-        m;
+        s;
         uop = U_PUSH_M4 dd;
       }
     )
@@ -782,11 +792,11 @@ let step cpu =
       | R16P_HL -> r.l
       | R16P_AF -> failwith "not implemented"
     in
-    Memory.write m r.sp v |> Option.map (fun m ->
-      { cpu with m; uop = U_FETCH }
+    System.write s r.sp v |> Option.map (fun s ->
+      { cpu with s; uop = U_FETCH }
     )
   | U_POP_M2 dd ->
-    Memory.read m r.sp |> Option.map (fun lo ->
+    System.read s r.sp |> Option.map (fun lo ->
       let r = match dd with
         | R16P_BC -> { r with c = lo }
         | R16P_DE -> { r with e = lo }
@@ -799,7 +809,7 @@ let step cpu =
       }
     )
   | U_POP_M3 dd ->
-    Memory.read m r.sp |> Option.map (fun hi ->
+    System.read s r.sp |> Option.map (fun hi ->
       let r = match dd with
         | R16P_BC -> { r with b = hi }
         | R16P_DE -> { r with d = hi }
@@ -821,7 +831,7 @@ let step cpu =
     in
     Some { cpu with uop = if taken then U_RET_M3 false else U_FETCH }
   | U_RET_M3 ei ->
-    Memory.read m r.sp |> Option.map (fun lo ->
+    System.read s r.sp |> Option.map (fun lo ->
       { cpu with
         r = { r with sp = (r.sp + 1) land 0xFFFF };
         ei = if ei then true else cpu.ei;
@@ -829,7 +839,7 @@ let step cpu =
       }
     )
   | U_RET_M4 lo ->
-    Memory.read m r.sp |> Option.map (fun hi ->
+    System.read s r.sp |> Option.map (fun hi ->
       { cpu with
         r = { r with sp = (r.sp + 1) land 0xFFFF };
         uop = U_RET_M5(lo, hi);
@@ -863,7 +873,7 @@ let step cpu =
     Some { cpu with r; uop = U_FETCH }
   | U_ALU8_M2(op, dst) ->
     let v0 = get_reg_8 r dst in
-    Memory.read m r.pc |> Option.map (fun v1 ->
+    System.read s r.pc |> Option.map (fun v1 ->
       let v, f = execute_alu8 op cpu.f v0 v1 in
       let pc = (cpu.r.pc + 1) land 0xFFFF in
       let r = { (set_reg_8 r dst v) with pc } in
@@ -872,18 +882,18 @@ let step cpu =
   | U_ALU8_HL_M2(op, dst) ->
     let v0 = get_reg_8 r dst in
     let hl = (r.h lsl 8) lor r.l in
-    Memory.read m hl |> Option.map (fun v1 ->
+    System.read s hl |> Option.map (fun v1 ->
       let v, f = execute_alu8 op cpu.f v0 v1 in
       let r = set_reg_8 r dst v in
       { cpu with r; f; uop = U_FETCH }
     )
   | U_MOV_D16_R8_M2(src, rw) ->
-    Memory.read m r.pc |> Option.map (fun lo ->
+    System.read s r.pc |> Option.map (fun lo ->
       let pc = (cpu.r.pc + 1) land 0xFFFF in
       { cpu with r = { r with pc }; uop = U_MOV_D16_R8_M3(src, lo, rw) }
     )
   | U_MOV_D16_R8_M3(src, lo, rw) ->
-    Memory.read m r.pc |> Option.map (fun hi ->
+    System.read s r.pc |> Option.map (fun hi ->
       let pc = (cpu.r.pc + 1) land 0xFFFF in
       { cpu with
         r = { r with pc };
@@ -893,10 +903,19 @@ let step cpu =
       }
     )
   | U_MOV_D16_R8_M4_R(src, lo, hi) ->
-    failwith "C"
+    failwith "U_MOV_D16_R8_M4_R"
   | U_MOV_D16_R8_M4_W(src, lo, hi) ->
     let addr = (hi lsl 8) lor lo in
     let v = get_reg_8 r src in
-    Memory.write m addr v |> Option.map (fun m ->
-      { cpu with m; uop = U_FETCH }
+    System.write s addr v |> Option.map (fun s ->
+      { cpu with s; uop = U_FETCH }
     )
+
+let tick cpu =
+  match step cpu with
+  | None -> None
+  | Some cpu ->
+    match System.tick cpu.s with
+    | None -> None
+    | Some (i, s) ->
+      Some { cpu with s }

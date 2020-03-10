@@ -10,6 +10,14 @@ type t =
   ; boot_rom_enabled: bool
   }
 
+type i =
+  { isPins: bool
+  ; isSerial: bool
+  ; isTimer: bool
+  ; isStat: bool
+  ; isVBlank: bool
+  }
+
 let boot_rom =
    [| 0x31; 0xfe; 0xff; 0xaf; 0x21; 0xff; 0x9f; 0x32
     ; 0xcb; 0x7c; 0x20; 0xfb; 0x21; 0x26; 0xff; 0x0e
@@ -127,3 +135,16 @@ let write mem addr v =
     Printf.eprintf "cannot write to %x\n" addr;
     exit (-1)
 
+let tick m =
+  match Gpu.tick m.gpu with
+  | None -> None
+  | Some ({ igStat; igVBlank }, gpu) ->
+    let i =
+      { isPins = false
+      ; isSerial = false
+      ; isTimer = false
+      ; isStat = igStat
+      ; isVBlank = igVBlank
+      }
+    in
+    Some (i, { m with gpu })
