@@ -68,6 +68,8 @@ let read mem addr =
   | op -> match addr with
   | 0xFF26 ->
     failwith "sound"
+  | 0xFF42 -> Gpu.get_scroll_y gpu
+  | 0xFF44 -> Gpu.get_ly gpu
   | op ->
     Printf.eprintf "cannot read from %x\n" addr;
     exit (-1)
@@ -87,6 +89,12 @@ let write mem addr v =
   | 0xFF12 ->
     (* TODO: Sound 1 Register, Envelope *)
     Some mem
+  | 0xFF13 ->
+    (* TODO: Sound 1 Register, Frequency Low Bits *)
+    Some mem
+  | 0xFF14 ->
+    (* TODO: Sound 1 Register, Frequency High Bits *)
+    Some mem
   | 0xFF24 ->
     (* TODO: Channel control on/off *)
     Some mem
@@ -95,10 +103,26 @@ let write mem addr v =
     Some mem
   | 0xFF26 ->
     (* Writing to the 7th bit enables/disables sound *)
-    let sound = Sound.(if v land 7 = 1 then enable else disable) sound in
-    Some { mem with sound }
+    Sound.(if v land 7 = 1 then enable else disable) sound |> Option.map
+      (fun sound -> { mem with sound })
+  | 0xFF40 ->
+    Gpu.set_lcdc
+      gpu
+      (v land 0x80 <> 0)
+      (if v land 0x40 <> 0 then 0x9C00 else 0x9800)
+      (v land 0x20 <> 0)
+      (if v land 0x10 <> 0 then 0x8000 else 0x8800)
+      (if v land 0x08 <> 0 then 0x9C00 else 0x9800)
+      (v land 0x01 <> 0)
+      (if v land 0x04 <> 0 then 16 else 8)
+      (v land 0x02 <> 0)
+      |> Option.map (fun gpu -> { mem with gpu })
+  | 0xFF42 ->
+    Gpu.set_scroll_y gpu v |> Option.map (fun gpu -> { mem with gpu })
   | 0xFF47 ->
     Gpu.set_bgp gpu v |> Option.map (fun gpu -> { mem with gpu })
+  | 0xFF50 ->
+    Some { mem with boot_rom_enabled = false; }
   | op ->
     Printf.eprintf "cannot write to %x\n" addr;
     exit (-1)
