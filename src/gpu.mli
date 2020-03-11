@@ -6,11 +6,6 @@ open Types
 
 type t
 
-type i =
-  { igStat: bool
-  ; igVBlank: bool
-  }
-
 val create : unit -> t
 
 val vram_read : t -> u16 -> u8 option
@@ -38,4 +33,4 @@ val set_lcdc
 
 val get_ly : t -> u8 option
 
-val tick : t -> (i * t) option
+val tick : t -> ((bool * bool) * t) option

@@ -4,18 +4,20 @@
 
 type t
 
-type i =
-  { isPins: bool
-  ; isSerial: bool
-  ; isTimer: bool
-  ; isStat: bool
-  ; isVBlank: bool
-  }
+type interrupt =
+  | Int_VBlank
+  | Int_Stat
+  | Int_Timer
+  | Int_Serial
+  | Int_Pins
 
-val create : Cartridge.t -> Gpu.t -> Sound.t -> t
+val create : Cartridge.t -> Gpu.t -> Sound.t -> Timer.t -> Input.t -> t
 
 val read : t -> Types.u16 -> Types.u8 option
-
 val write : t -> Types.u16 -> Types.u8 -> t option
 
-val tick : t -> (i * t) option
+val is_interrupt_enabled : t -> interrupt -> bool
+val is_interrupt_pending : t -> interrupt -> bool
+val clear_interrupt : t -> interrupt -> t option
+
+val tick : t -> t option

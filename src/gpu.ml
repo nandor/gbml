@@ -194,7 +194,7 @@ let set_lcdc
 
 let get_ly gpu = Some gpu.lcd_ly
 
-let no_i = { igStat = false; igVBlank = false }
+let no_i = (false, false)
 
 let tick gpu =
   match gpu.state with

@@ -3,14 +3,23 @@
 (* (C) 2020 Nandor Licker. All rights reserved. *)
 
 module MBC1 = struct
+  type mode = ROM | RAM
+
   type t =
     { rom_bank: int
-    ; banks: bytes array
+    ; ram_bank: int
+    ; has_ram: bool
+    ; mode: mode
+    ; rom_banks: bytes array
+    ; ram_banks: (bytes array) option
     }
 
-  let load rom_banks bank0 ch =
+  let load rom_banks bank0 ch ~has_ram ~has_battery =
     { rom_bank = 1
-    ; banks = Array.init rom_banks (fun i ->
+    ; ram_bank = 0
+    ; has_ram
+    ; mode = ROM
+    ; rom_banks = Array.init rom_banks (fun i ->
         if i == 0 then
           bank0
         else begin
@@ -19,18 +28,50 @@ module MBC1 = struct
           Buffer.to_bytes bank
         end
       )
+    ; ram_banks = None
     }
 
   let read cart addr =
-    let chr =
-      if addr < 0x4000 then
-        Bytes.get cart.banks.(0) addr
-      else
-        Bytes.get cart.banks.(cart.rom_bank) (addr - 0x4000)
-    in
-    Some (Char.code chr)
+    match addr land 0xF000 with
+    | 0x0000 | 0x1000 | 0x2000 | 0x3000 ->
+      Some (Char.code (Bytes.get cart.rom_banks.(0) addr))
+    | 0x4000 | 0x5000 | 0x6000 | 0x7000 ->
+      Some (Char.code (Bytes.get cart.rom_banks.(cart.rom_bank) (addr - 0x4000)))
+    | 0xA000 | 0xB000 ->
+      cart.ram_banks |> Option.map (fun ram_banks ->
+        Char.code (Bytes.get ram_banks.(cart.ram_bank) (addr - 0xA000))
+      )
+    | _ ->
+      failwith "MBC1.read"
 
-  let write _cart _addr = failwith "not implemented: MBC1.write"
+  let write cart addr v =
+    match addr land 0xF000 with
+    | 0x0000 | 0x1000 ->
+      if v = 0xA then
+        if not cart.has_ram then
+          None
+        else
+          Some { cart with
+            ram_banks = Some (Array.init 4 (fun _ ->
+              Bytes.make 0x2000 (Char.chr 0)
+            ))
+          }
+      else
+        Some { cart with ram_banks = None }
+    | 0x2000 | 0x3000 ->
+      Some { cart with
+        rom_bank =
+          (cart.rom_bank land 0xE0)
+          lor
+          (if v land 0x1F <> 0 then v land 0x1F else 1)
+      }
+    | 0xA000 | 0xB000 ->
+      cart.ram_banks |> Option.map (fun ram_banks ->
+        Bytes.set ram_banks.(cart.ram_bank) (addr - 0xA000) (Char.chr v);
+        cart
+      )
+    | _ ->
+      failwith (Printf.sprintf "MBC1.write %04x %02x" addr v)
 end
 
 module MBC2 = struct
@@ -40,7 +81,7 @@ module MBC2 = struct
 
   let read _cart _addr = failwith "not implementedL MBC2.read"
 
-  let write _cart _addr = failwith "not implemented: MBC2.write"
+  let write _cart _addr _v = failwith "not implemented: MBC2.write"
 end
 
 type t =
@@ -78,7 +119,24 @@ let load path =
   (* Decide what kind of cartridge this is *)
   let cart =
     match Char.code (Bytes.get bank0 0x147) with
-    | 0x01 -> Cart_MBC1 (MBC1.load rom_banks bank0 ch)
+    | 0x01 -> Cart_MBC1 (MBC1.load rom_banks
+        bank0
+        ch
+        ~has_ram:false
+        ~has_battery:false
+      )
+    | 0x02 -> Cart_MBC1 (MBC1.load rom_banks
+        bank0
+        ch
+        ~has_ram:true
+        ~has_battery:false
+      )
+    | 0x03 -> Cart_MBC1 (MBC1.load rom_banks
+        bank0
+        ch
+        ~has_ram:true
+        ~has_battery:true
+      )
     | 0x05 -> Cart_MBC2 (MBC2.load rom_banks bank0 ch)
     | code ->
       Printf.eprintf "Invalid cartridge: %x" code;
@@ -92,7 +150,7 @@ let read cart =
   | Cart_MBC1 c -> MBC1.read c
   | Cart_MBC2 c -> MBC2.read c
 
-let write cart =
+let write cart addr v =
   match cart with
-  | Cart_MBC1 c -> MBC1.write c
-  | Cart_MBC2 c -> MBC2.write c
+  | Cart_MBC1 c -> MBC1.write c addr v |> Option.map (fun c -> Cart_MBC1 c)
+  | Cart_MBC2 c -> MBC2.write c addr v |> Option.map (fun c -> Cart_MBC2 c)

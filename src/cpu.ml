@@ -91,6 +91,10 @@ type alu8_op =
   | Bit of int
   | Res of int
   | Set of int
+  | Cpl
+  | Ccf
+  | Scf
+  | Daa
 
 type alu16_op =
   | Inc16
@@ -123,7 +127,8 @@ type uop =
   (* ld r8, d8 *)
   | U_LD_R8_D8_M2 of reg_8
   (* ld (c), a *)
-  | U_ST_C_M2
+  | U_MOV_C_M2_R
+  | U_MOV_C_M2_W
   (* ld (d8), a *)
   | U_MOV_D8_M2 of rw
   | U_MOV_D8_M3_R of u8
@@ -153,9 +158,11 @@ type uop =
   (* alu16 *)
   | U_ALU16_M2 of alu16_op * reg_16s * reg_16s
   (* alu8 r8, d8 *)
-  | U_ALU8_M2 of alu8_op * reg_8
+  | U_ALU8_D8_M2 of alu8_op * reg_8
   (* alu8 r8, (HL) *)
   | U_ALU8_HL_M2 of alu8_op * reg_8
+  (* bit (HL) *)
+  | U_ALU8_BIT_M2 of int
   (* ld (d16), r8 *)
   | U_MOV_D16_R8_M2 of reg_8 * rw
   | U_MOV_D16_R8_M3 of reg_8 * u8 * rw
@@ -170,12 +177,25 @@ type uop =
   | U_RST_M2 of u8
   | U_RST_M3 of u8
   | U_RST_M4 of u8
+  (* ld (hl), d8 *)
+  | U_ST_HL_D8_M2 of reg_16
+  | U_ST_HL_D8_M3 of reg_16 * u8
+  (* ld r16, sp+i8 *)
+  | U_ADD_SP_D8_M2 of reg_16s
+  | U_ADD_SP_D8_M3 of reg_16s * u8
+  | U_ADD_SP_D8_M4
+  (* interrupt *)
+  | U_INT_M2 of u8
+  | U_INT_M3 of u8
+  | U_INT_M4 of u8
+  | U_INT_M5 of u8
 
 type t =
   { r: r
   ; f: f
   ; s: System.t
   ; ime: bool
+  ; halted: bool
   ; uop: uop
   }
 
@@ -252,7 +272,10 @@ let execute_alu8 op f op0 op1 =
     let c = v < 0x00 in
     v land 0xFF, { z; n = true; h; c }
 
-  | Sbc -> failwith "not implemented: Sbc"
+  | Sbc ->
+    let v = op0 - op1 - if c then 1 else 0 in
+    let h = (op0 land 0x0F) - (op1 land 0x0F) - (if c then 1 else 0) < 0x00 in
+    v land 0xFF, { z = (v land 0xFF) = 0; n = true; h; c = v < 0x00 }
 
   | And ->
     let v = op0 land op1 in
@@ -278,8 +301,17 @@ let execute_alu8 op f op0 op1 =
     let v = op1 in
     v, f
 
-  | Rlc -> failwith "not implemented: Rlc"
-  | Rrc -> failwith "not implemented: Rrc"
+  | Rlc ->
+    let l = (op1 land 0x80) lsr 7 in
+    let c = (op1 land 0x80) <> 0 in
+    let v = ((op1 lsl 1) lor l) land 0xFF in
+    v, { z = v = 0; n = false; h = false; c }
+
+  | Rrc ->
+    let l = (op1 land 0x01) lsl 7 in
+    let c = (op1 land 0x01) <> 0 in
+    let v = ((op1 lsr 1) lor l) land 0xFF in
+    v, { z = v = 0; n = false; h = false; c }
 
   | Rl ->
     let l = if c then 1 else 0 in
@@ -293,17 +325,30 @@ let execute_alu8 op f op0 op1 =
     let v = ((op1 lsr 1) lor l) land 0xFF in
     v, { z = v = 0; n = false; h = false; c }
 
-  | Sla -> failwith "not implemented: Sla"
-  | Sra -> failwith "not implemented: Sra"
-  | Swap -> failwith "not implemented: Swap"
+  | Sla ->
+    let c = (op1 land 0x80) != 0x00 in
+    let v = (op1 lsl 1) land 0xFF in
+    v, { z = v = 0; n = false; h = false; c }
+
+  | Sra ->
+    let c = (op1 land 0x01) != 0x00 in
+    let v = ((op1 lsr 1) lor (op1 land 0x80)) land 0xFF in
+    v, { z = v = 0; n = false; h = false; c }
+
+  | Swap ->
+    let v = ((op1 land 0x0F ) lsl 4) lor ((op1 land 0xF0) lsr 4) in
+    v, { z = v = 0; n = false; h = false; c = false }
 
   | Srl ->
     let c = (op1 land 0x01) <> 0 in
     let v = (op1 lsr 1) land 0xFF in
     v, { z = v = 0; n = false; h = false; c }
 
-  | Res _ -> failwith "not implemented: Res"
-  | Set _ -> failwith "not implemented: Set"
+  | Res n ->
+    op1 land (lnot (1 lsl n)), f
+
+  | Set n ->
+    op1 lor (1 lsl n), f
 
   | Inc ->
     let v = (op1 + 1) land 0xFF in
@@ -311,20 +356,56 @@ let execute_alu8 op f op0 op1 =
 
   | Dec ->
     let v = (op1 - 1) land 0xFF in
-    v, { z = v = 0; n = true; h = (v land 0x0F) = 0; c }
+    v, { z = v = 0; n = true; h = (v land 0x0F) = 0x0F; c }
+
+  | Cpl ->
+    let v = (lnot op1) land 0xFF in
+    v, { z; n = true; h = true; c }
+
+  | Ccf ->
+    op0, { z; n = false; h = false; c = not c }
+
+  | Scf ->
+    op0, { z; n = false; h = false; c = true }
+
+  | Daa ->
+    let v, c =
+      if n then
+        let adj =
+          if c && h then 0x9A
+          else if c then 0xA0
+          else if h then 0xFA
+          else 0x00
+        in
+        (op1 + adj) land 0xFF, c
+      else
+        let a, c =
+          if c || op1 > 0x99 then (op1 + 0x60) land 0xFF, true else op1, c
+        in
+        if h || (a land 0x0F) > 0x09 then (a + 0x06) land 0xFF, c else a, c
+    in
+    v, { z = v = 0; n; h = false; c }
 
 let decode_alu8 cpu op op0 op1 =
   let v0 = get_reg_8 cpu.r op0 in
   let v1 = get_reg_8 cpu.r op1 in
   let v, f = execute_alu8 op cpu.f v0 v1 in
-  let pc = (cpu.r.pc + 1) land 0xFFFF in
-  let r = { (set_reg_8 cpu.r op0 v) with pc } in
-  Some { cpu with r; f; uop = U_FETCH }
+  Some { cpu with r = (set_reg_8 (inc_pc cpu.r) op0 v); f; uop = U_FETCH }
+
+let decode_alu8_rot cpu op op0 op1 =
+  let v0 = get_reg_8 cpu.r op0 in
+  let v1 = get_reg_8 cpu.r op1 in
+  let v, { c } = execute_alu8 op cpu.f v0 v1 in
+  Some { cpu with
+    r = (set_reg_8 (inc_pc cpu.r) op0 v);
+    f = { z = false; n = false; h = false; c };
+    uop = U_FETCH
+  }
 
 let decode_alu8_d8 cpu op dst =
-  Some { cpu with r = inc_pc cpu.r; uop = U_ALU8_M2(op, dst) }
+  Some { cpu with r = inc_pc cpu.r; uop = U_ALU8_D8_M2(op, dst) }
 
-let decode_alu8_hl cpu op dst =
+let decode_alu8_hl_r8 cpu op dst =
   Some { cpu with r = inc_pc cpu.r; uop = U_ALU8_HL_M2(op, dst) }
 
 let decode_alu16 cpu op dst src =
@@ -351,12 +432,14 @@ let decode_mov_hl cpu rw dir reg =
       | W -> U_MOV_HL_M2_W(dir, reg)
   }
 
-let decode_alu_hl cpu op =
+let decode_alu8_hl cpu op =
   Some { cpu with r = inc_pc cpu.r; uop = U_ALU_HL_M2 op }
 
+let decode_alu8_bit cpu n =
+  Some { cpu with r = inc_pc cpu.r; uop = U_ALU8_BIT_M2 n }
+
 let decode_jr cpu cc =
-  Some { cpu with r = inc_pc cpu.r; uop = U_JR_M2 cc
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_JR_M2 cc }
 
 let decode_ret cpu cc ime =
   Some { cpu with r = inc_pc cpu.r; uop = match cc with
@@ -382,8 +465,13 @@ let decode_jp cpu cc =
 let decode_movh cpu rw =
   Some { cpu with r = inc_pc cpu.r; uop = U_MOV_D8_M2 rw }
 
-let decode_st_c cpu =
-  Some { cpu with r = inc_pc cpu.r; uop = U_ST_C_M2 }
+let decode_mov_c cpu rw =
+  Some { cpu with
+    r = inc_pc cpu.r;
+    uop = match rw with
+    | R -> U_MOV_C_M2_R
+    | W -> U_MOV_C_M2_W
+  }
 
 let decode_mov_d16_r8 cpu reg rw =
   Some { cpu with r = inc_pc cpu.r; uop = U_MOV_D16_R8_M2(reg, rw) }
@@ -393,6 +481,12 @@ let decode_jp_hl cpu =
 
 let decode_rst cpu i =
   Some { cpu with r = inc_pc cpu.r; uop = U_RST_M2 i }
+
+let decode_st_hl_d8 cpu r =
+  Some { cpu with r = inc_pc cpu.r; uop = U_ST_HL_D8_M2 r }
+
+let decode_add_sp_d8 cpu r =
+  Some { cpu with r = inc_pc cpu.r; uop = U_ADD_SP_D8_M2 r }
 
 let create s =
   { r =
@@ -415,12 +509,42 @@ let create s =
     }
   ; s
   ; ime = false
+  ; halted = false
   ; uop = U_FETCH
   }
 
+let interrupt cpu addr i =
+  System.clear_interrupt cpu.s i |> Option.map (fun s ->
+    { cpu with ime = false; s; uop = U_INT_M2 addr }
+  )
+
 let step cpu =
-  let { uop; r; s; f } = cpu in
+  (* Update the halted flag is an interrupt was triggered. *)
+  let halted =
+    cpu.halted && not (
+      List.exists (System.is_interrupt_pending cpu.s)
+        [ Int_VBlank
+        ; Int_Stat
+        ; Int_Timer
+        ; Int_Serial
+        ; Int_Pins
+        ]
+    )
+  in
+  let cpu = { cpu with halted } in
+  let { uop; r; s; f; halted; ime } = cpu in
+
+  (* Helper to check if an ISR should be entered. *)
+  let has_interrupt i =
+    ime && System.is_interrupt_pending s i && System.is_interrupt_enabled s i
+  in
   match uop with
+  | U_FETCH when has_interrupt Int_VBlank -> interrupt cpu 0x40 Int_VBlank
+  | U_FETCH when has_interrupt Int_Stat   -> interrupt cpu 0x48 Int_Stat
+  | U_FETCH when has_interrupt Int_Timer  -> interrupt cpu 0x50 Int_Timer
+  | U_FETCH when has_interrupt Int_Serial -> interrupt cpu 0x58 Int_Serial
+  | U_FETCH when has_interrupt Int_Pins   -> interrupt cpu 0x60 Int_Pins
+  | U_FETCH when halted -> Some cpu
   | U_FETCH ->
     (match System.read s r.pc with
     | None -> None
@@ -433,7 +557,7 @@ let step cpu =
       | 0x04 -> decode_alu8       cpu Inc R8_B R8_B
       | 0x05 -> decode_alu8       cpu Dec R8_B R8_B
       | 0x06 -> decode_ld_r8_d8   cpu R8_B
-      | 0x07 -> decode_alu8       cpu Rlc R8_A R8_A
+      | 0x07 -> decode_alu8_rot   cpu Rlc R8_A R8_A
       | 0x08 -> decode_st_d16_r16 cpu R16S_SP
       | 0x09 -> decode_alu16      cpu Add16 R16S_HL R16S_BC
       | 0x0A -> decode_mov_r8_r16 cpu R R8_A R16_BC
@@ -441,15 +565,15 @@ let step cpu =
       | 0x0C -> decode_alu8       cpu Inc R8_C R8_C
       | 0x0D -> decode_alu8       cpu Dec R8_C R8_C
       | 0x0E -> decode_ld_r8_d8   cpu R8_C
-      | 0x0F -> decode_alu8       cpu Rrc R8_A R8_A
-      | 0x10 -> failwith "0x10"
+      | 0x0F -> decode_alu8_rot   cpu Rrc R8_A R8_A
+      | 0x10 -> None
       | 0x11 -> decode_ld_r16_d16 cpu R16S_DE
       | 0x12 -> decode_mov_r8_r16 cpu W R8_A R16_DE
       | 0x13 -> decode_alu16      cpu Inc16 R16S_DE R16S_DE
       | 0x14 -> decode_alu8       cpu Inc R8_D R8_D
       | 0x15 -> decode_alu8       cpu Dec R8_D R8_D
       | 0x16 -> decode_ld_r8_d8   cpu R8_D
-      | 0x17 -> decode_alu8       cpu Rl R8_A R8_A
+      | 0x17 -> decode_alu8_rot   cpu Rl R8_A R8_A
       | 0x18 -> decode_jr         cpu CC_A
       | 0x19 -> decode_alu16      cpu Add16 R16S_HL R16S_DE
       | 0x1A -> decode_mov_r8_r16 cpu R R8_A R16_DE
@@ -457,7 +581,7 @@ let step cpu =
       | 0x1C -> decode_alu8       cpu Inc R8_E R8_E
       | 0x1D -> decode_alu8       cpu Dec R8_E R8_E
       | 0x1E -> decode_ld_r8_d8   cpu R8_E
-      | 0x1F -> decode_alu8       cpu Rr R8_A R8_A
+      | 0x1F -> decode_alu8_rot   cpu Rr R8_A R8_A
       | 0x20 -> decode_jr         cpu CC_NZ
       | 0x21 -> decode_ld_r16_d16 cpu R16S_HL
       | 0x22 -> decode_mov_hl     cpu W D_Inc R8_A
@@ -465,7 +589,7 @@ let step cpu =
       | 0x24 -> decode_alu8       cpu Inc R8_H R8_H
       | 0x25 -> decode_alu8       cpu Dec R8_H R8_H
       | 0x26 -> decode_ld_r8_d8   cpu R8_H
-      | 0x27 -> failwith "DAA"
+      | 0x27 -> decode_alu8       cpu Daa R8_A R8_A
       | 0x28 -> decode_jr         cpu CC_Z
       | 0x29 -> decode_alu16      cpu Add16 R16S_HL R16S_HL
       | 0x2A -> decode_mov_hl     cpu R D_Inc R8_A
@@ -473,15 +597,15 @@ let step cpu =
       | 0x2C -> decode_alu8       cpu Inc R8_L R8_L
       | 0x2D -> decode_alu8       cpu Dec R8_L R8_L
       | 0x2E -> decode_ld_r8_d8   cpu R8_L
-      | 0x2F -> failwith "CPL"
+      | 0x2F -> decode_alu8       cpu Cpl R8_A R8_A
       | 0x30 -> decode_jr         cpu CC_NC
       | 0x31 -> decode_ld_r16_d16 cpu R16S_SP
       | 0x32 -> decode_mov_hl     cpu W D_Dec R8_A
       | 0x33 -> decode_alu16      cpu Inc16 R16S_SP R16S_SP
-      | 0x34 -> decode_alu_hl     cpu Inc
-      | 0x35 -> decode_alu_hl     cpu Dec
-      | 0x36 -> failwith "0x36"
-      | 0x37 -> failwith "SCF"
+      | 0x34 -> decode_alu8_hl    cpu Inc
+      | 0x35 -> decode_alu8_hl    cpu Dec
+      | 0x36 -> decode_st_hl_d8   cpu R16_HL
+      | 0x37 -> decode_alu8       cpu Scf R8_A R8_A
       | 0x38 -> decode_jr         cpu CC_C
       | 0x39 -> decode_alu16      cpu Add16 R16S_HL R16S_SP
       | 0x3A -> decode_mov_hl     cpu R D_Dec R8_A
@@ -489,14 +613,14 @@ let step cpu =
       | 0x3C -> decode_alu8       cpu Inc R8_A R8_A
       | 0x3D -> decode_alu8       cpu Dec R8_A R8_A
       | 0x3E -> decode_ld_r8_d8   cpu R8_A
-      | 0x3F -> failwith "CCF"
+      | 0x3F -> decode_alu8       cpu Ccf R8_A R8_A
       | 0x40 -> decode_alu8       cpu Mov R8_B R8_B
       | 0x41 -> decode_alu8       cpu Mov R8_B R8_C
       | 0x42 -> decode_alu8       cpu Mov R8_B R8_D
       | 0x43 -> decode_alu8       cpu Mov R8_B R8_E
       | 0x44 -> decode_alu8       cpu Mov R8_B R8_H
       | 0x45 -> decode_alu8       cpu Mov R8_B R8_L
-      | 0x46 -> decode_alu8_hl    cpu Mov R8_B
+      | 0x46 -> decode_alu8_hl_r8 cpu Mov R8_B
       | 0x47 -> decode_alu8       cpu Mov R8_B R8_A
       | 0x48 -> decode_alu8       cpu Mov R8_C R8_B
       | 0x49 -> decode_alu8       cpu Mov R8_C R8_C
@@ -504,7 +628,7 @@ let step cpu =
       | 0x4B -> decode_alu8       cpu Mov R8_C R8_E
       | 0x4C -> decode_alu8       cpu Mov R8_C R8_H
       | 0x4D -> decode_alu8       cpu Mov R8_C R8_L
-      | 0x4E -> decode_alu8_hl    cpu Mov R8_C
+      | 0x4E -> decode_alu8_hl_r8 cpu Mov R8_C
       | 0x4F -> decode_alu8       cpu Mov R8_C R8_A
       | 0x50 -> decode_alu8       cpu Mov R8_D R8_B
       | 0x51 -> decode_alu8       cpu Mov R8_D R8_C
@@ -512,7 +636,7 @@ let step cpu =
       | 0x53 -> decode_alu8       cpu Mov R8_D R8_E
       | 0x54 -> decode_alu8       cpu Mov R8_D R8_H
       | 0x55 -> decode_alu8       cpu Mov R8_D R8_L
-      | 0x56 -> decode_alu8_hl    cpu Mov R8_D
+      | 0x56 -> decode_alu8_hl_r8 cpu Mov R8_D
       | 0x57 -> decode_alu8       cpu Mov R8_D R8_A
       | 0x58 -> decode_alu8       cpu Mov R8_E R8_B
       | 0x59 -> decode_alu8       cpu Mov R8_E R8_C
@@ -520,7 +644,7 @@ let step cpu =
       | 0x5B -> decode_alu8       cpu Mov R8_E R8_E
       | 0x5C -> decode_alu8       cpu Mov R8_E R8_H
       | 0x5D -> decode_alu8       cpu Mov R8_E R8_L
-      | 0x5E -> decode_alu8_hl    cpu Mov R8_E
+      | 0x5E -> decode_alu8_hl_r8 cpu Mov R8_E
       | 0x5F -> decode_alu8       cpu Mov R8_E R8_A
       | 0x60 -> decode_alu8       cpu Mov R8_H R8_B
       | 0x61 -> decode_alu8       cpu Mov R8_H R8_C
@@ -528,7 +652,7 @@ let step cpu =
       | 0x63 -> decode_alu8       cpu Mov R8_H R8_E
       | 0x64 -> decode_alu8       cpu Mov R8_H R8_H
       | 0x65 -> decode_alu8       cpu Mov R8_H R8_L
-      | 0x66 -> decode_alu8_hl    cpu Mov R8_H
+      | 0x66 -> decode_alu8_hl_r8 cpu Mov R8_H
       | 0x67 -> decode_alu8       cpu Mov R8_H R8_A
       | 0x68 -> decode_alu8       cpu Mov R8_L R8_B
       | 0x69 -> decode_alu8       cpu Mov R8_L R8_C
@@ -536,7 +660,7 @@ let step cpu =
       | 0x6B -> decode_alu8       cpu Mov R8_L R8_E
       | 0x6C -> decode_alu8       cpu Mov R8_L R8_H
       | 0x6D -> decode_alu8       cpu Mov R8_L R8_L
-      | 0x6E -> decode_alu8_hl    cpu Mov R8_L
+      | 0x6E -> decode_alu8_hl_r8 cpu Mov R8_L
       | 0x6F -> decode_alu8       cpu Mov R8_L R8_A
       | 0x70 -> decode_mov_hl     cpu W D_Nop R8_B
       | 0x71 -> decode_mov_hl     cpu W D_Nop R8_C
@@ -544,7 +668,7 @@ let step cpu =
       | 0x73 -> decode_mov_hl     cpu W D_Nop R8_E
       | 0x74 -> decode_mov_hl     cpu W D_Nop R8_H
       | 0x75 -> decode_mov_hl     cpu W D_Nop R8_L
-      | 0x76 -> failwith "not implemented: HALT"
+      | 0x76 -> Some { cpu with r = inc_pc r; halted = true; uop = U_FETCH }
       | 0x77 -> decode_mov_hl     cpu W D_Nop R8_A
       | 0x78 -> decode_alu8       cpu Mov R8_A R8_B
       | 0x79 -> decode_alu8       cpu Mov R8_A R8_C
@@ -552,7 +676,7 @@ let step cpu =
       | 0x7B -> decode_alu8       cpu Mov R8_A R8_E
       | 0x7C -> decode_alu8       cpu Mov R8_A R8_H
       | 0x7D -> decode_alu8       cpu Mov R8_A R8_L
-      | 0x7E -> decode_alu8_hl    cpu Mov R8_A
+      | 0x7E -> decode_alu8_hl_r8 cpu Mov R8_A
       | 0x7F -> decode_alu8       cpu Mov R8_A R8_A
       | 0x80 -> decode_alu8       cpu Add R8_A R8_B
       | 0x81 -> decode_alu8       cpu Add R8_A R8_C
@@ -560,7 +684,7 @@ let step cpu =
       | 0x83 -> decode_alu8       cpu Add R8_A R8_E
       | 0x84 -> decode_alu8       cpu Add R8_A R8_H
       | 0x85 -> decode_alu8       cpu Add R8_A R8_L
-      | 0x86 -> decode_alu8_hl    cpu Add R8_A
+      | 0x86 -> decode_alu8_hl_r8 cpu Add R8_A
       | 0x87 -> decode_alu8       cpu Add R8_A R8_A
       | 0x88 -> decode_alu8       cpu Adc R8_A R8_B
       | 0x89 -> decode_alu8       cpu Adc R8_A R8_C
@@ -568,7 +692,7 @@ let step cpu =
       | 0x8B -> decode_alu8       cpu Adc R8_A R8_E
       | 0x8C -> decode_alu8       cpu Adc R8_A R8_H
       | 0x8D -> decode_alu8       cpu Adc R8_A R8_L
-      | 0x8E -> decode_alu8_hl    cpu Adc R8_A
+      | 0x8E -> decode_alu8_hl_r8 cpu Adc R8_A
       | 0x8F -> decode_alu8       cpu Adc R8_A R8_A
       | 0x90 -> decode_alu8       cpu Sub R8_A R8_B
       | 0x91 -> decode_alu8       cpu Sub R8_A R8_C
@@ -576,7 +700,7 @@ let step cpu =
       | 0x93 -> decode_alu8       cpu Sub R8_A R8_E
       | 0x94 -> decode_alu8       cpu Sub R8_A R8_H
       | 0x95 -> decode_alu8       cpu Sub R8_A R8_L
-      | 0x96 -> decode_alu8_hl    cpu Sub R8_A
+      | 0x96 -> decode_alu8_hl_r8 cpu Sub R8_A
       | 0x97 -> decode_alu8       cpu Sub R8_A R8_A
       | 0x98 -> decode_alu8       cpu Sbc R8_A R8_B
       | 0x99 -> decode_alu8       cpu Sbc R8_A R8_C
@@ -584,7 +708,7 @@ let step cpu =
       | 0x9B -> decode_alu8       cpu Sbc R8_A R8_E
       | 0x9C -> decode_alu8       cpu Sbc R8_A R8_H
       | 0x9D -> decode_alu8       cpu Sbc R8_A R8_L
-      | 0x9E -> decode_alu8_hl    cpu Sbc R8_A
+      | 0x9E -> decode_alu8_hl_r8 cpu Sbc R8_A
       | 0x9F -> decode_alu8       cpu Sbc R8_A R8_A
       | 0xA0 -> decode_alu8       cpu And R8_A R8_B
       | 0xA1 -> decode_alu8       cpu And R8_A R8_C
@@ -592,7 +716,7 @@ let step cpu =
       | 0xA3 -> decode_alu8       cpu And R8_A R8_E
       | 0xA4 -> decode_alu8       cpu And R8_A R8_H
       | 0xA5 -> decode_alu8       cpu And R8_A R8_L
-      | 0xA6 -> decode_alu8_hl    cpu And R8_A
+      | 0xA6 -> decode_alu8_hl_r8 cpu And R8_A
       | 0xA7 -> decode_alu8       cpu And R8_A R8_A
       | 0xA8 -> decode_alu8       cpu Xor R8_A R8_B
       | 0xA9 -> decode_alu8       cpu Xor R8_A R8_C
@@ -600,7 +724,7 @@ let step cpu =
       | 0xAB -> decode_alu8       cpu Xor R8_A R8_E
       | 0xAC -> decode_alu8       cpu Xor R8_A R8_H
       | 0xAD -> decode_alu8       cpu Xor R8_A R8_L
-      | 0xAE -> decode_alu8_hl    cpu Xor R8_A
+      | 0xAE -> decode_alu8_hl_r8 cpu Xor R8_A
       | 0xAF -> decode_alu8       cpu Xor R8_A R8_A
       | 0xB0 -> decode_alu8       cpu Or  R8_A R8_B
       | 0xB1 -> decode_alu8       cpu Or  R8_A R8_C
@@ -608,7 +732,7 @@ let step cpu =
       | 0xB3 -> decode_alu8       cpu Or  R8_A R8_E
       | 0xB4 -> decode_alu8       cpu Or  R8_A R8_H
       | 0xB5 -> decode_alu8       cpu Or  R8_A R8_L
-      | 0xB6 -> decode_alu8_hl    cpu Or  R8_A
+      | 0xB6 -> decode_alu8_hl_r8 cpu Or  R8_A
       | 0xB7 -> decode_alu8       cpu Or  R8_A R8_A
       | 0xB8 -> decode_alu8       cpu Cp  R8_A R8_B
       | 0xB9 -> decode_alu8       cpu Cp  R8_A R8_C
@@ -616,7 +740,7 @@ let step cpu =
       | 0xBB -> decode_alu8       cpu Cp  R8_A R8_E
       | 0xBC -> decode_alu8       cpu Cp  R8_A R8_H
       | 0xBD -> decode_alu8       cpu Cp  R8_A R8_L
-      | 0xBE -> decode_alu8_hl    cpu Cp  R8_A
+      | 0xBE -> decode_alu8_hl_r8 cpu Cp  R8_A
       | 0xBF -> decode_alu8       cpu Cp  R8_A R8_A
       | 0xC0 -> decode_ret        cpu CC_NZ false
       | 0xC1 -> decode_pop        cpu R16P_BC
@@ -637,7 +761,7 @@ let step cpu =
       | 0xD0 -> decode_ret        cpu CC_NC false
       | 0xD1 -> decode_pop        cpu R16P_DE
       | 0xD2 -> decode_jp         cpu CC_NC
-      (* 0xD3 *)
+      | 0xD3 -> failwith "0xD3"
       | 0xD4 -> decode_call       cpu CC_NC
       | 0xD5 -> decode_push       cpu R16P_DE
       | 0xD6 -> decode_alu8_d8    cpu Sub R8_A
@@ -645,45 +769,43 @@ let step cpu =
       | 0xD8 -> decode_ret        cpu CC_C false
       | 0xD9 -> decode_ret        cpu CC_A true
       | 0xDA -> decode_jp         cpu CC_C
-      (* 0xDB *)
+      | 0xDB -> failwith "0xDB"
       | 0xDC -> decode_call       cpu CC_C
       | 0xDE -> decode_alu8_d8    cpu Sbc R8_A
       | 0xDF -> decode_rst        cpu 0x18
       | 0xE0 -> decode_movh       cpu W
       | 0xE1 -> decode_pop        cpu R16P_HL
-      | 0xE2 -> decode_st_c       cpu
-      (* 0xE3 *)
-      (* 0xE4 *)
+      | 0xE2 -> decode_mov_c      cpu W
+      | 0xE3 -> failwith "0xE3"
+      | 0xE4 -> failwith "0xE4"
       | 0xE5 -> decode_push       cpu R16P_HL
       | 0xE6 -> decode_alu8_d8    cpu And R8_A
       | 0xE7 -> decode_rst        cpu 0x20
-      | 0xE8 -> failwith "0xE8"
+      | 0xE8 -> decode_add_sp_d8  cpu R16S_SP
       | 0xE9 -> decode_jp_hl      cpu
       | 0xEA -> decode_mov_d16_r8 cpu R8_A W
-      (* 0xEB *)
-      (* 0xEC *)
-      (* 0xED *)
+      | 0xEB -> failwith "0xEB"
+      | 0xEC -> failwith "0xEC"
+      | 0xED -> failwith "0xED"
       | 0xEE -> decode_alu8_d8    cpu Xor R8_A
       | 0xEF -> decode_rst        cpu 0x28
       | 0xF0 -> decode_movh       cpu R
       | 0xF1 -> decode_pop        cpu R16P_AF
-      | 0xF2 -> failwith "0xF2"
+      | 0xF2 -> decode_mov_c      cpu R
       | 0xF3 -> Some { cpu with r = inc_pc r; ime = false; uop = U_FETCH }
-      (* 0xF4 *)
+      | 0xF4 -> failwith "0xF4"
       | 0xF5 -> decode_push       cpu R16P_AF
       | 0xF6 -> decode_alu8_d8    cpu Or R8_A
       | 0xF7 -> decode_rst        cpu 0x30
-      | 0xF8 -> failwith "0xF8"
+      | 0xF8 -> decode_add_sp_d8  cpu R16S_HL
       | 0xF9 -> decode_alu16      cpu Mov16 R16S_SP R16S_HL
       | 0xFA -> decode_mov_d16_r8 cpu R8_A R
       | 0xFB -> Some { cpu with r = inc_pc r; ime = true; uop = U_FETCH }
-      (* 0xFC *)
-      (* 0xFD *)
+      | 0xFC -> failwith "0xFC"
+      | 0xFD -> failwith "0xFD"
       | 0xFE -> decode_alu8_d8    cpu Cp R8_A
       | 0xFF -> decode_rst        cpu 0x38
-      | op ->
-        Printf.eprintf "invalid opcode: %x\n" op;
-        exit (-1)
+      | _ -> failwith "unreachable"
       )
     )
   | U_CB ->
@@ -691,44 +813,263 @@ let step cpu =
     | None -> None
     | Some op ->
       (match op with
-      | 0x10 -> decode_alu8 cpu Rl R8_B R8_B
-      | 0x11 -> decode_alu8 cpu Rl R8_C R8_C
-      | 0x12 -> decode_alu8 cpu Rl R8_D R8_D
-      | 0x13 -> decode_alu8 cpu Rl R8_E R8_E
-      | 0x14 -> decode_alu8 cpu Rl R8_H R8_H
-      | 0x15 -> decode_alu8 cpu Rl R8_L R8_L
-      | 0x16 -> failwith "not implemented: 0x16"
-      | 0x17 -> decode_alu8 cpu Rl R8_A R8_A
-
-      | 0x18 -> decode_alu8 cpu Rr R8_B R8_B
-      | 0x19 -> decode_alu8 cpu Rr R8_C R8_C
-      | 0x1A -> decode_alu8 cpu Rr R8_D R8_D
-      | 0x1B -> decode_alu8 cpu Rr R8_E R8_E
-      | 0x1C -> decode_alu8 cpu Rr R8_H R8_H
-      | 0x1D -> decode_alu8 cpu Rr R8_L R8_L
-      | 0x1E -> failwith "not implemented: 0x1E"
-      | 0x1F -> decode_alu8 cpu Rr R8_A R8_A
-
-      | 0x38 -> decode_alu8 cpu Srl R8_B R8_B
-      | 0x40 -> decode_alu8 cpu (Bit 0) R8_B R8_B
-      | 0x44 -> decode_alu8 cpu (Bit 0) R8_H R8_H
-      | 0x48 -> decode_alu8 cpu (Bit 1) R8_B R8_B
-      | 0x4C -> decode_alu8 cpu (Bit 1) R8_H R8_H
-      | 0x50 -> decode_alu8 cpu (Bit 2) R8_B R8_B
-      | 0x54 -> decode_alu8 cpu (Bit 2) R8_H R8_H
-      | 0x58 -> decode_alu8 cpu (Bit 3) R8_B R8_B
-      | 0x5C -> decode_alu8 cpu (Bit 3) R8_H R8_H
-      | 0x60 -> decode_alu8 cpu (Bit 4) R8_B R8_B
-      | 0x64 -> decode_alu8 cpu (Bit 4) R8_H R8_H
-      | 0x68 -> decode_alu8 cpu (Bit 5) R8_B R8_B
-      | 0x6C -> decode_alu8 cpu (Bit 5) R8_H R8_H
-      | 0x70 -> decode_alu8 cpu (Bit 6) R8_B R8_B
-      | 0x74 -> decode_alu8 cpu (Bit 6) R8_H R8_H
-      | 0x78 -> decode_alu8 cpu (Bit 7) R8_B R8_B
-      | 0x7C -> decode_alu8 cpu (Bit 7) R8_H R8_H
-      | op ->
-        Printf.eprintf "invalid CB opcode: %x\n" op;
-        exit (-1)
+      | 0x00 -> decode_alu8     cpu Rlc R8_B R8_B
+      | 0x01 -> decode_alu8     cpu Rlc R8_C R8_C
+      | 0x02 -> decode_alu8     cpu Rlc R8_D R8_D
+      | 0x03 -> decode_alu8     cpu Rlc R8_E R8_E
+      | 0x04 -> decode_alu8     cpu Rlc R8_H R8_H
+      | 0x05 -> decode_alu8     cpu Rlc R8_L R8_L
+      | 0x06 -> decode_alu8_hl  cpu Rlc
+      | 0x07 -> decode_alu8     cpu Rlc R8_A R8_A
+      | 0x08 -> decode_alu8     cpu Rrc R8_B R8_B
+      | 0x09 -> decode_alu8     cpu Rrc R8_C R8_C
+      | 0x0A -> decode_alu8     cpu Rrc R8_D R8_D
+      | 0x0B -> decode_alu8     cpu Rrc R8_E R8_E
+      | 0x0C -> decode_alu8     cpu Rrc R8_H R8_H
+      | 0x0D -> decode_alu8     cpu Rrc R8_L R8_L
+      | 0x0E -> decode_alu8_hl  cpu Rrc
+      | 0x0F -> decode_alu8     cpu Rrc R8_A R8_A
+      | 0x10 -> decode_alu8     cpu Rl R8_B R8_B
+      | 0x11 -> decode_alu8     cpu Rl R8_C R8_C
+      | 0x12 -> decode_alu8     cpu Rl R8_D R8_D
+      | 0x13 -> decode_alu8     cpu Rl R8_E R8_E
+      | 0x14 -> decode_alu8     cpu Rl R8_H R8_H
+      | 0x15 -> decode_alu8     cpu Rl R8_L R8_L
+      | 0x16 -> decode_alu8_hl  cpu Rl
+      | 0x17 -> decode_alu8     cpu Rl R8_A R8_A
+      | 0x18 -> decode_alu8     cpu Rr R8_B R8_B
+      | 0x19 -> decode_alu8     cpu Rr R8_C R8_C
+      | 0x1A -> decode_alu8     cpu Rr R8_D R8_D
+      | 0x1B -> decode_alu8     cpu Rr R8_E R8_E
+      | 0x1C -> decode_alu8     cpu Rr R8_H R8_H
+      | 0x1D -> decode_alu8     cpu Rr R8_L R8_L
+      | 0x1E -> decode_alu8_hl  cpu Rr
+      | 0x1F -> decode_alu8     cpu Rr R8_A R8_A
+      | 0x20 -> decode_alu8     cpu Sla R8_B R8_B
+      | 0x21 -> decode_alu8     cpu Sla R8_C R8_C
+      | 0x22 -> decode_alu8     cpu Sla R8_D R8_D
+      | 0x23 -> decode_alu8     cpu Sla R8_E R8_E
+      | 0x24 -> decode_alu8     cpu Sla R8_H R8_H
+      | 0x25 -> decode_alu8     cpu Sla R8_L R8_L
+      | 0x26 -> decode_alu8_hl  cpu Sla
+      | 0x27 -> decode_alu8     cpu Sla R8_A R8_A
+      | 0x28 -> decode_alu8     cpu Sra R8_B R8_B
+      | 0x29 -> decode_alu8     cpu Sra R8_C R8_C
+      | 0x2A -> decode_alu8     cpu Sra R8_D R8_D
+      | 0x2B -> decode_alu8     cpu Sra R8_E R8_E
+      | 0x2C -> decode_alu8     cpu Sra R8_H R8_H
+      | 0x2D -> decode_alu8     cpu Sra R8_L R8_L
+      | 0x2E -> decode_alu8_hl  cpu Sra
+      | 0x2F -> decode_alu8     cpu Sra R8_A R8_A
+      | 0x30 -> decode_alu8     cpu Swap R8_B R8_B
+      | 0x31 -> decode_alu8     cpu Swap R8_C R8_C
+      | 0x32 -> decode_alu8     cpu Swap R8_D R8_D
+      | 0x33 -> decode_alu8     cpu Swap R8_E R8_E
+      | 0x34 -> decode_alu8     cpu Swap R8_H R8_H
+      | 0x35 -> decode_alu8     cpu Swap R8_L R8_L
+      | 0x36 -> decode_alu8_hl  cpu Swap
+      | 0x37 -> decode_alu8     cpu Swap R8_A R8_A
+      | 0x38 -> decode_alu8     cpu Srl R8_B R8_B
+      | 0x39 -> decode_alu8     cpu Srl R8_C R8_C
+      | 0x3A -> decode_alu8     cpu Srl R8_D R8_D
+      | 0x3B -> decode_alu8     cpu Srl R8_E R8_E
+      | 0x3C -> decode_alu8     cpu Srl R8_H R8_H
+      | 0x3D -> decode_alu8     cpu Srl R8_L R8_L
+      | 0x3E -> decode_alu8_hl  cpu Srl
+      | 0x3F -> decode_alu8     cpu Srl R8_A R8_A
+      | 0x40 -> decode_alu8     cpu (Bit 0) R8_B R8_B
+      | 0x41 -> decode_alu8     cpu (Bit 0) R8_C R8_C
+      | 0x42 -> decode_alu8     cpu (Bit 0) R8_D R8_D
+      | 0x43 -> decode_alu8     cpu (Bit 0) R8_E R8_E
+      | 0x44 -> decode_alu8     cpu (Bit 0) R8_H R8_H
+      | 0x45 -> decode_alu8     cpu (Bit 0) R8_L R8_L
+      | 0x46 -> decode_alu8_bit cpu 0
+      | 0x47 -> decode_alu8     cpu (Bit 0) R8_A R8_A
+      | 0x48 -> decode_alu8     cpu (Bit 1) R8_B R8_B
+      | 0x49 -> decode_alu8     cpu (Bit 1) R8_C R8_C
+      | 0x4A -> decode_alu8     cpu (Bit 1) R8_D R8_D
+      | 0x4B -> decode_alu8     cpu (Bit 1) R8_E R8_E
+      | 0x4C -> decode_alu8     cpu (Bit 1) R8_H R8_H
+      | 0x4D -> decode_alu8     cpu (Bit 1) R8_L R8_L
+      | 0x4E -> decode_alu8_bit cpu 1
+      | 0x4F -> decode_alu8     cpu (Bit 1) R8_A R8_A
+      | 0x50 -> decode_alu8     cpu (Bit 2) R8_B R8_B
+      | 0x51 -> decode_alu8     cpu (Bit 2) R8_C R8_C
+      | 0x52 -> decode_alu8     cpu (Bit 2) R8_D R8_D
+      | 0x53 -> decode_alu8     cpu (Bit 2) R8_E R8_E
+      | 0x54 -> decode_alu8     cpu (Bit 2) R8_H R8_H
+      | 0x55 -> decode_alu8     cpu (Bit 2) R8_L R8_L
+      | 0x56 -> decode_alu8_bit cpu 2
+      | 0x57 -> decode_alu8     cpu (Bit 2) R8_A R8_A
+      | 0x58 -> decode_alu8     cpu (Bit 3) R8_B R8_B
+      | 0x59 -> decode_alu8     cpu (Bit 3) R8_C R8_C
+      | 0x5A -> decode_alu8     cpu (Bit 3) R8_D R8_D
+      | 0x5B -> decode_alu8     cpu (Bit 3) R8_E R8_E
+      | 0x5C -> decode_alu8     cpu (Bit 3) R8_H R8_H
+      | 0x5D -> decode_alu8     cpu (Bit 3) R8_L R8_L
+      | 0x5E -> decode_alu8_bit cpu 3
+      | 0x5F -> decode_alu8     cpu (Bit 3) R8_A R8_A
+      | 0x60 -> decode_alu8     cpu (Bit 4) R8_B R8_B
+      | 0x61 -> decode_alu8     cpu (Bit 4) R8_C R8_C
+      | 0x62 -> decode_alu8     cpu (Bit 4) R8_D R8_D
+      | 0x63 -> decode_alu8     cpu (Bit 4) R8_E R8_E
+      | 0x64 -> decode_alu8     cpu (Bit 4) R8_H R8_H
+      | 0x65 -> decode_alu8     cpu (Bit 4) R8_L R8_L
+      | 0x66 -> decode_alu8_bit cpu 4
+      | 0x67 -> decode_alu8     cpu (Bit 4) R8_A R8_A
+      | 0x68 -> decode_alu8     cpu (Bit 5) R8_B R8_B
+      | 0x69 -> decode_alu8     cpu (Bit 5) R8_C R8_C
+      | 0x6A -> decode_alu8     cpu (Bit 5) R8_D R8_D
+      | 0x6B -> decode_alu8     cpu (Bit 5) R8_E R8_E
+      | 0x6C -> decode_alu8     cpu (Bit 5) R8_H R8_H
+      | 0x6D -> decode_alu8     cpu (Bit 5) R8_L R8_L
+      | 0x6E -> decode_alu8_bit cpu 5
+      | 0x6F -> decode_alu8     cpu (Bit 5) R8_A R8_A
+      | 0x70 -> decode_alu8     cpu (Bit 6) R8_B R8_B
+      | 0x71 -> decode_alu8     cpu (Bit 6) R8_C R8_C
+      | 0x72 -> decode_alu8     cpu (Bit 6) R8_D R8_D
+      | 0x73 -> decode_alu8     cpu (Bit 6) R8_E R8_E
+      | 0x74 -> decode_alu8     cpu (Bit 6) R8_H R8_H
+      | 0x75 -> decode_alu8     cpu (Bit 6) R8_L R8_L
+      | 0x76 -> decode_alu8_bit cpu 6
+      | 0x77 -> decode_alu8     cpu (Bit 6) R8_A R8_A
+      | 0x78 -> decode_alu8     cpu (Bit 7) R8_B R8_B
+      | 0x79 -> decode_alu8     cpu (Bit 7) R8_C R8_C
+      | 0x7A -> decode_alu8     cpu (Bit 7) R8_D R8_D
+      | 0x7B -> decode_alu8     cpu (Bit 7) R8_E R8_E
+      | 0x7C -> decode_alu8     cpu (Bit 7) R8_H R8_H
+      | 0x7D -> decode_alu8     cpu (Bit 7) R8_L R8_L
+      | 0x7E -> decode_alu8_bit cpu 7
+      | 0x7F -> decode_alu8     cpu (Bit 7) R8_A R8_A
+      | 0x80 -> decode_alu8     cpu (Res 0) R8_B R8_B
+      | 0x81 -> decode_alu8     cpu (Res 0) R8_C R8_C
+      | 0x82 -> decode_alu8     cpu (Res 0) R8_D R8_D
+      | 0x83 -> decode_alu8     cpu (Res 0) R8_E R8_E
+      | 0x84 -> decode_alu8     cpu (Res 0) R8_H R8_H
+      | 0x85 -> decode_alu8     cpu (Res 0) R8_L R8_L
+      | 0x86 -> decode_alu8_hl  cpu (Res 0)
+      | 0x87 -> decode_alu8     cpu (Res 0) R8_A R8_A
+      | 0x88 -> decode_alu8     cpu (Res 1) R8_B R8_B
+      | 0x89 -> decode_alu8     cpu (Res 1) R8_C R8_C
+      | 0x8A -> decode_alu8     cpu (Res 1) R8_D R8_D
+      | 0x8B -> decode_alu8     cpu (Res 1) R8_E R8_E
+      | 0x8C -> decode_alu8     cpu (Res 1) R8_H R8_H
+      | 0x8D -> decode_alu8     cpu (Res 1) R8_L R8_L
+      | 0x8E -> decode_alu8_hl  cpu (Res 1)
+      | 0x8F -> decode_alu8     cpu (Res 1) R8_A R8_A
+      | 0x90 -> decode_alu8     cpu (Res 2) R8_B R8_B
+      | 0x91 -> decode_alu8     cpu (Res 2) R8_C R8_C
+      | 0x92 -> decode_alu8     cpu (Res 2) R8_D R8_D
+      | 0x93 -> decode_alu8     cpu (Res 2) R8_E R8_E
+      | 0x94 -> decode_alu8     cpu (Res 2) R8_H R8_H
+      | 0x95 -> decode_alu8     cpu (Res 2) R8_L R8_L
+      | 0x96 -> decode_alu8_hl  cpu (Res 2)
+      | 0x97 -> decode_alu8     cpu (Res 2) R8_A R8_A
+      | 0x98 -> decode_alu8     cpu (Res 3) R8_B R8_B
+      | 0x99 -> decode_alu8     cpu (Res 3) R8_C R8_C
+      | 0x9A -> decode_alu8     cpu (Res 3) R8_D R8_D
+      | 0x9B -> decode_alu8     cpu (Res 3) R8_E R8_E
+      | 0x9C -> decode_alu8     cpu (Res 3) R8_H R8_H
+      | 0x9D -> decode_alu8     cpu (Res 3) R8_L R8_L
+      | 0x9E -> decode_alu8_hl  cpu (Res 3)
+      | 0x9F -> decode_alu8     cpu (Res 3) R8_A R8_A
+      | 0xA0 -> decode_alu8     cpu (Res 4) R8_B R8_B
+      | 0xA1 -> decode_alu8     cpu (Res 4) R8_C R8_C
+      | 0xA2 -> decode_alu8     cpu (Res 4) R8_D R8_D
+      | 0xA3 -> decode_alu8     cpu (Res 4) R8_E R8_E
+      | 0xA4 -> decode_alu8     cpu (Res 4) R8_H R8_H
+      | 0xA5 -> decode_alu8     cpu (Res 4) R8_L R8_L
+      | 0xA6 -> decode_alu8_hl  cpu (Res 4)
+      | 0xA7 -> decode_alu8     cpu (Res 4) R8_A R8_A
+      | 0xA8 -> decode_alu8     cpu (Res 5) R8_B R8_B
+      | 0xA9 -> decode_alu8     cpu (Res 5) R8_C R8_C
+      | 0xAA -> decode_alu8     cpu (Res 5) R8_D R8_D
+      | 0xAB -> decode_alu8     cpu (Res 5) R8_E R8_E
+      | 0xAC -> decode_alu8     cpu (Res 5) R8_H R8_H
+      | 0xAD -> decode_alu8     cpu (Res 5) R8_L R8_L
+      | 0xAE -> decode_alu8_hl  cpu (Res 5)
+      | 0xAF -> decode_alu8     cpu (Res 5) R8_A R8_A
+      | 0xB0 -> decode_alu8     cpu (Res 6) R8_B R8_B
+      | 0xB1 -> decode_alu8     cpu (Res 6) R8_C R8_C
+      | 0xB2 -> decode_alu8     cpu (Res 6) R8_D R8_D
+      | 0xB3 -> decode_alu8     cpu (Res 6) R8_E R8_E
+      | 0xB4 -> decode_alu8     cpu (Res 6) R8_H R8_H
+      | 0xB5 -> decode_alu8     cpu (Res 6) R8_L R8_L
+      | 0xB6 -> decode_alu8_hl  cpu (Res 6)
+      | 0xB7 -> decode_alu8     cpu (Res 6) R8_A R8_A
+      | 0xB8 -> decode_alu8     cpu (Res 7) R8_B R8_B
+      | 0xB9 -> decode_alu8     cpu (Res 7) R8_C R8_C
+      | 0xBA -> decode_alu8     cpu (Res 7) R8_D R8_D
+      | 0xBB -> decode_alu8     cpu (Res 7) R8_E R8_E
+      | 0xBC -> decode_alu8     cpu (Res 7) R8_H R8_H
+      | 0xBD -> decode_alu8     cpu (Res 7) R8_L R8_L
+      | 0xBE -> decode_alu8_hl  cpu (Res 7)
+      | 0xBF -> decode_alu8     cpu (Res 7) R8_A R8_A
+      | 0xC0 -> decode_alu8     cpu (Set 0) R8_B R8_B
+      | 0xC1 -> decode_alu8     cpu (Set 0) R8_C R8_C
+      | 0xC2 -> decode_alu8     cpu (Set 0) R8_D R8_D
+      | 0xC3 -> decode_alu8     cpu (Set 0) R8_E R8_E
+      | 0xC4 -> decode_alu8     cpu (Set 0) R8_H R8_H
+      | 0xC5 -> decode_alu8     cpu (Set 0) R8_L R8_L
+      | 0xC6 -> decode_alu8_hl  cpu (Set 0)
+      | 0xC7 -> decode_alu8     cpu (Set 0) R8_A R8_A
+      | 0xC8 -> decode_alu8     cpu (Set 1) R8_B R8_B
+      | 0xC9 -> decode_alu8     cpu (Set 1) R8_C R8_C
+      | 0xCA -> decode_alu8     cpu (Set 1) R8_D R8_D
+      | 0xCB -> decode_alu8     cpu (Set 1) R8_E R8_E
+      | 0xCC -> decode_alu8     cpu (Set 1) R8_H R8_H
+      | 0xCD -> decode_alu8     cpu (Set 1) R8_L R8_L
+      | 0xCE -> decode_alu8_hl  cpu (Set 1)
+      | 0xCF -> decode_alu8     cpu (Set 1) R8_A R8_A
+      | 0xD0 -> decode_alu8     cpu (Set 2) R8_B R8_B
+      | 0xD1 -> decode_alu8     cpu (Set 2) R8_C R8_C
+      | 0xD2 -> decode_alu8     cpu (Set 2) R8_D R8_D
+      | 0xD3 -> decode_alu8     cpu (Set 2) R8_E R8_E
+      | 0xD4 -> decode_alu8     cpu (Set 2) R8_H R8_H
+      | 0xD5 -> decode_alu8     cpu (Set 2) R8_L R8_L
+      | 0xD6 -> decode_alu8_hl  cpu (Set 2)
+      | 0xD7 -> decode_alu8     cpu (Set 2) R8_A R8_A
+      | 0xD8 -> decode_alu8     cpu (Set 3) R8_B R8_B
+      | 0xD9 -> decode_alu8     cpu (Set 3) R8_C R8_C
+      | 0xDA -> decode_alu8     cpu (Set 3) R8_D R8_D
+      | 0xDB -> decode_alu8     cpu (Set 3) R8_E R8_E
+      | 0xDC -> decode_alu8     cpu (Set 3) R8_H R8_H
+      | 0xDD -> decode_alu8     cpu (Set 3) R8_L R8_L
+      | 0xDE -> decode_alu8_hl  cpu (Set 3)
+      | 0xDF -> decode_alu8     cpu (Set 3) R8_A R8_A
+      | 0xE0 -> decode_alu8     cpu (Set 4) R8_B R8_B
+      | 0xE1 -> decode_alu8     cpu (Set 4) R8_C R8_C
+      | 0xE2 -> decode_alu8     cpu (Set 4) R8_D R8_D
+      | 0xE3 -> decode_alu8     cpu (Set 4) R8_E R8_E
+      | 0xE4 -> decode_alu8     cpu (Set 4) R8_H R8_H
+      | 0xE5 -> decode_alu8     cpu (Set 4) R8_L R8_L
+      | 0xE6 -> decode_alu8_hl  cpu (Set 4)
+      | 0xE7 -> decode_alu8     cpu (Set 4) R8_A R8_A
+      | 0xE8 -> decode_alu8     cpu (Set 5) R8_B R8_B
+      | 0xE9 -> decode_alu8     cpu (Set 5) R8_C R8_C
+      | 0xEA -> decode_alu8     cpu (Set 5) R8_D R8_D
+      | 0xEB -> decode_alu8     cpu (Set 5) R8_E R8_E
+      | 0xEC -> decode_alu8     cpu (Set 5) R8_H R8_H
+      | 0xED -> decode_alu8     cpu (Set 5) R8_L R8_L
+      | 0xEE -> decode_alu8_hl  cpu (Set 5)
+      | 0xEF -> decode_alu8     cpu (Set 5) R8_A R8_A
+      | 0xF0 -> decode_alu8     cpu (Set 6) R8_B R8_B
+      | 0xF1 -> decode_alu8     cpu (Set 6) R8_C R8_C
+      | 0xF2 -> decode_alu8     cpu (Set 6) R8_D R8_D
+      | 0xF3 -> decode_alu8     cpu (Set 6) R8_E R8_E
+      | 0xF4 -> decode_alu8     cpu (Set 6) R8_H R8_H
+      | 0xF5 -> decode_alu8     cpu (Set 6) R8_L R8_L
+      | 0xF6 -> decode_alu8_hl  cpu (Set 6)
+      | 0xF7 -> decode_alu8     cpu (Set 6) R8_A R8_A
+      | 0xF8 -> decode_alu8     cpu (Set 7) R8_B R8_B
+      | 0xF9 -> decode_alu8     cpu (Set 7) R8_C R8_C
+      | 0xFA -> decode_alu8     cpu (Set 7) R8_D R8_D
+      | 0xFB -> decode_alu8     cpu (Set 7) R8_E R8_E
+      | 0xFC -> decode_alu8     cpu (Set 7) R8_H R8_H
+      | 0xFD -> decode_alu8     cpu (Set 7) R8_L R8_L
+      | 0xFE -> decode_alu8_hl  cpu (Set 7)
+      | 0xFF -> decode_alu8     cpu (Set 7) R8_A R8_A
+      | _ -> failwith "unreachable"
       )
     )
   | U_MOV_R8_R16_M2_R(r8, r16) ->
@@ -807,10 +1148,16 @@ let step cpu =
     read_imm cpu (fun cpu v ->
       { cpu with r = set_reg_8 cpu.r d v; uop = U_FETCH; }
     )
-  | U_ST_C_M2 ->
+
+  | U_MOV_C_M2_R ->
+    System.read s (0xFF00 + r.c) |> Option.map (fun a ->
+      { cpu with r = { r with a }; s; uop = U_FETCH }
+    )
+  | U_MOV_C_M2_W ->
     System.write s (0xFF00 + r.c) r.a |> Option.map (fun s ->
       { cpu with s; uop = U_FETCH }
     )
+
   | U_MOV_D8_M2 rw ->
     read_imm cpu (fun cpu a ->
       { cpu with
@@ -965,7 +1312,7 @@ let step cpu =
       | Dec16 -> (v1 - 1) land 0xFFFF, f
       | Add16 ->
         let v = v0 + v1 in
-        let h = (v0 land 0x0FFF ) > (v1 land 0x0FFF) in
+        let h = (v0 land 0x0FFF ) > (v land 0x0FFF) in
         let c = v > 0xFFFF in
         v land 0xFFFF, { z = f.z; n = false; h; c}
       | Mov16 -> v1, f
@@ -979,7 +1326,7 @@ let step cpu =
       | R16S_SP -> { r with sp = v }
     in
     Some { cpu with r; f; uop = U_FETCH }
-  | U_ALU8_M2(op, dst) ->
+  | U_ALU8_D8_M2(op, dst) ->
     read_imm cpu (fun cpu v1 ->
       let v0 = get_reg_8 cpu.r dst in
       let v, f = execute_alu8 op cpu.f v0 v1 in
@@ -987,11 +1334,17 @@ let step cpu =
     )
   | U_ALU8_HL_M2(op, dst) ->
     let v0 = get_reg_8 r dst in
-    let hl = (r.h lsl 8) lor r.l in
-    System.read s hl |> Option.map (fun v1 ->
+    System.read s ((r.h lsl 8) lor r.l) |> Option.map (fun v1 ->
       let v, f = execute_alu8 op cpu.f v0 v1 in
       let r = set_reg_8 r dst v in
       { cpu with r; f; uop = U_FETCH }
+    )
+  | U_ALU8_BIT_M2 n ->
+    System.read s ((r.h lsl 8) lor r.l) |> Option.map (fun v ->
+      { cpu with
+        f = { f with z = v land (1 lsl n) = 0; n = false; h = true };
+        uop = U_FETCH
+      }
     )
   | U_MOV_D16_R8_M2(src, rw) ->
     read_imm cpu (fun cpu lo ->
@@ -1071,11 +1424,59 @@ let step cpu =
       { cpu with r = { r with pc = h }; uop = U_FETCH }
     )
 
+  | U_ST_HL_D8_M2 reg ->
+    read_imm cpu (fun cpu v -> { cpu with uop = U_ST_HL_D8_M3(reg, v) })
+  | U_ST_HL_D8_M3(reg, v) ->
+    System.write s (get_reg_16 cpu.r reg) v |> Option.map (fun s ->
+      { cpu with s; uop = U_FETCH }
+    )
+
+  | U_ADD_SP_D8_M2 reg ->
+    read_imm cpu (fun cpu v -> { cpu with uop = U_ADD_SP_D8_M3(reg, v) })
+
+  | U_ADD_SP_D8_M3(reg, v) ->
+    let i = i8_of_u8 v in
+    let v = (r.sp + i) land 0xFFFF in
+    let c = r.sp lxor i lxor v in
+    let f =
+      { z = false
+      ; n = false
+      ; h = (c land 0x0010) = 0x0010
+      ; c = (c land 0x100) = 0x0100
+      }
+    in
+    let hi = (v land 0xFF00) lsr 8 in
+    let lo = (v land 0x00FF) lsr 0 in
+    (match reg with
+    | R16S_BC -> Some { cpu with r = { r with b = hi; c = lo }; f; uop = U_FETCH }
+    | R16S_DE -> Some { cpu with r = { r with d = hi; e = lo }; f; uop = U_FETCH }
+    | R16S_HL -> Some { cpu with r = { r with h = hi; l = lo }; f; uop = U_FETCH }
+    | R16S_SP -> Some { cpu with r = { r with sp = v }; f; uop = U_ADD_SP_D8_M4 }
+    )
+  | U_ADD_SP_D8_M4 ->
+    Some { cpu with uop = U_FETCH }
+
+  | U_INT_M2 addr ->
+    Some { cpu with
+      r = { r with sp = (r.sp - 1) land 0xFFFF };
+      uop = U_INT_M3 addr;
+    }
+  | U_INT_M3 addr ->
+    Some { cpu with uop = U_INT_M4 addr }
+  | U_INT_M4 addr ->
+    System.write s r.sp ((r.pc land 0xFF00) lsr 8) |> Option.map (fun s ->
+      { cpu with s;
+        r = { r with sp = (r.sp - 1) land 0xFFFF; pc = r.pc land 0x00FF; };
+        uop = U_INT_M5 addr
+      }
+    )
+
+  | U_INT_M5 addr ->
+    System.write s r.sp ((r.pc land 0x00FF) lsr 0) |> Option.map (fun s ->
+      { cpu with s; r = { r with pc = addr; }; uop = U_FETCH }
+    )
+
 let tick cpu =
-  match step cpu with
+  match System.tick cpu.s with
   | None -> None
-  | Some cpu ->
-    match System.tick cpu.s with
-    | None -> None
-    | Some (i, s) ->
-      Some { cpu with s }
+  | Some s -> step { cpu with s }

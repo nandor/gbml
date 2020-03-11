@@ -5,9 +5,11 @@
 let () =
   (* Set up components *)
   let cart = Cartridge.load (Sys.argv.(1)) in
+  let timer = Timer.create () in
   let gpu = Gpu.create () in
   let sound = Sound.create () in
-  let mem = System.create cart gpu sound in
+  let input = Input.create () in
+  let mem = System.create cart gpu sound timer input in
   let cpu = Cpu.create mem in
 
   (* Main loop *)
