@@ -21,6 +21,8 @@ val set_bgp : t -> u8 -> t option
 
 val set_scroll_y : t -> u8 -> t option
 val get_scroll_y : t -> u8 option
+val set_scroll_x : t -> u8 -> t option
+val get_scroll_x : t -> u8 option
 
 val set_lcdc
    : t

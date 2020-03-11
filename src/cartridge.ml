@@ -3,21 +3,32 @@
 (* (C) 2020 Nandor Licker. All rights reserved. *)
 
 module MBC1 = struct
-  type t = {
-    rom_bank: int;
-    banks: bytes array
-  }
+  type t =
+    { rom_bank: int
+    ; banks: bytes array
+    }
 
-  let load _rom_banks bank0 _chan = {
-    rom_bank = 1;
-    banks = [| bank0 |]
-  }
+  let load rom_banks bank0 ch =
+    { rom_bank = 1
+    ; banks = Array.init rom_banks (fun i ->
+        if i == 0 then
+          bank0
+        else begin
+          let bank = Buffer.create 0x4000 in
+          Buffer.add_channel bank ch 0x4000;
+          Buffer.to_bytes bank
+        end
+      )
+    }
 
   let read cart addr =
-    if addr < 0x4000 then
-      Some (Char.code (Bytes.get cart.banks.(0) addr))
-    else
-      failwith "not implemented: MBC1.read"
+    let chr =
+      if addr < 0x4000 then
+        Bytes.get cart.banks.(0) addr
+      else
+        Bytes.get cart.banks.(cart.rom_bank) (addr - 0x4000)
+    in
+    Some (Char.code chr)
 
   let write _cart _addr = failwith "not implemented: MBC1.write"
 end

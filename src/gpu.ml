@@ -164,11 +164,11 @@ let set_bgp gpu v =
   in
   Some { gpu with lcd_bg_palette }
 
-let set_scroll_y gpu scroll_y =
-  Some { gpu with scroll_y }
+let set_scroll_y gpu scroll_y = Some { gpu with scroll_y }
+let get_scroll_y gpu = Some gpu.scroll_y
 
-let get_scroll_y gpu =
-  Some gpu.scroll_y
+let set_scroll_x gpu scroll_x = Some { gpu with scroll_x }
+let get_scroll_x gpu = Some gpu.scroll_x
 
 let set_lcdc
   gpu

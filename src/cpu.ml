@@ -33,26 +33,6 @@ type reg_8 =
   | R8_L
   | R8_A
 
-let get_reg_8 r reg =
-  match reg with
-  | R8_B -> r.b
-  | R8_C -> r.c
-  | R8_D -> r.d
-  | R8_E -> r.e
-  | R8_H -> r.h
-  | R8_L -> r.l
-  | R8_A -> r.a
-
-let set_reg_8 r reg v =
-  match reg with
-  | R8_B -> { r with b = v }
-  | R8_C -> { r with c = v }
-  | R8_D -> { r with d = v }
-  | R8_E -> { r with e = v }
-  | R8_H -> { r with h = v }
-  | R8_L -> { r with l = v }
-  | R8_A -> { r with a = v }
-
 type reg_16 =
   | R16_BC
   | R16_DE
@@ -113,8 +93,10 @@ type alu8_op =
   | Set of int
 
 type alu16_op =
-  | Inc
-  | Dec
+  | Inc16
+  | Dec16
+  | Add16
+  | Mov16
 
 type rw =
   | R
@@ -126,13 +108,18 @@ type uop =
   (* ld r16, d16 *)
   | U_LD_R16_D16_M2 of reg_16s
   | U_LD_R16_D16_M3 of reg_16s
-  (* ld r8, r16 *)
-  | U_LD_R8_R16_M2 of reg_8 * reg_16
+  (* ld r8, (r16) *)
+  | U_MOV_R8_R16_M2_R of reg_8 * reg_16
+  | U_MOV_R8_R16_M2_W of reg_8 * reg_16
   (* jr *)
   | U_JR_M2 of cc
   | U_JR_M3 of u8
   (* ld (HL±), r8 *)
-  | U_ST_HL_M2 of dir * reg_8
+  | U_MOV_HL_M2_R of dir * reg_8
+  | U_MOV_HL_M2_W of dir * reg_8
+  (* inc/dec (HL) *)
+  | U_ALU_HL_M2 of alu8_op
+  | U_ALU_HL_M3 of u8
   (* ld r8, d8 *)
   | U_LD_R8_D8_M2 of reg_8
   (* ld (c), a *)
@@ -147,6 +134,10 @@ type uop =
   | U_CALL_M4 of u8 * u8
   | U_CALL_M5 of u8 * u8
   | U_CALL_M6 of u8
+  (* jp (cc), d16 *)
+  | U_JP_D16_M2 of cc
+  | U_JP_D16_M3 of cc * u8
+  | U_JP_D16_M4 of u8 * u8
   (* push *)
   | U_PUSH_M2 of reg_16p
   | U_PUSH_M3 of reg_16p
@@ -170,26 +161,89 @@ type uop =
   | U_MOV_D16_R8_M3 of reg_8 * u8 * rw
   | U_MOV_D16_R8_M4_R of reg_8 * u8 * u8
   | U_MOV_D16_R8_M4_W of reg_8 * u8 * u8
+  (* ld (a16), SP *)
+  | U_ST_D16_R16_M2 of reg_16s
+  | U_ST_D16_R12_M3 of reg_16s * u8
+  | U_ST_D16_R12_M4 of reg_16s * u8 * u8
+  | U_ST_D16_R12_M5 of reg_16s * u8 * u8
+  (* rst *)
+  | U_RST_M2 of u8
+  | U_RST_M3 of u8
+  | U_RST_M4 of u8
 
 type t =
   { r: r
   ; f: f
   ; s: System.t
-  ; ei: bool
+  ; ime: bool
   ; uop: uop
   }
+
+let get_reg_8 r reg =
+  match reg with
+  | R8_B -> r.b
+  | R8_C -> r.c
+  | R8_D -> r.d
+  | R8_E -> r.e
+  | R8_H -> r.h
+  | R8_L -> r.l
+  | R8_A -> r.a
+
+let get_reg_16 r reg =
+  match reg with
+  | R16_BC -> (r.b lsl 8) lor r.c
+  | R16_DE -> (r.d lsl 8) lor r.e
+  | R16_HL -> (r.h lsl 8) lor r.l
+
+let get_reg_16s r reg =
+  match reg with
+  | R16S_BC -> (r.b lsl 8) lor r.c
+  | R16S_DE -> (r.d lsl 8) lor r.e
+  | R16S_HL -> (r.h lsl 8) lor r.l
+  | R16S_SP -> r.sp
+
+let set_reg_8 r reg v =
+  match reg with
+  | R8_B -> { r with b = v }
+  | R8_C -> { r with c = v }
+  | R8_D -> { r with d = v }
+  | R8_E -> { r with e = v }
+  | R8_H -> { r with h = v }
+  | R8_L -> { r with l = v }
+  | R8_A -> { r with a = v }
+
+let is_taken cc f =
+  match cc with
+  | CC_Z -> f.z
+  | CC_NZ -> not f.z
+  | CC_C -> f.c
+  | CC_NC -> not f.c
+  | CC_A -> true
+
+let inc_pc r =
+  { r with pc = (r.pc + 1) land 0xFFFF }
+
+let read_imm cpu f =
+  System.read cpu.s cpu.r.pc |> Option.map (fun imm ->
+    f { cpu with r = inc_pc cpu.r } imm
+  )
 
 let execute_alu8 op f op0 op1 =
   let { z; n; h; c } = f in
   match op with
   | Add ->
     let v = op0 + op1 in
-    let z = (v land 0xFF) = 0 in
+    let z = (v land 0xFF) = 0x00 in
     let h = (v land 0xF) < (op1 land 0xF) in
     let c = v > 0xFF in
     v land 0xFF, { z; n = false; h; c }
 
-  | Adc -> failwith "not implemented: Adc"
+  | Adc ->
+    let v = op0 + op1 + if c then 1 else 0 in
+    let z = (v land 0xFF) == 0x00 in
+    let h = (op0 land 0x0F) + (op1 land 0x0F) + (if c then 1 else 0) > 0x0F in
+    let c = v > 0xFF in
+    v land 0xFF, { z; n = false; h; c }
 
   | Sub ->
     let v = op0 - op1 in
@@ -200,13 +254,17 @@ let execute_alu8 op f op0 op1 =
 
   | Sbc -> failwith "not implemented: Sbc"
 
-  | And -> failwith "not implemented: And"
+  | And ->
+    let v = op0 land op1 in
+    v, { z = v = 0; n = false; h = true; c = false }
 
   | Xor ->
     let v = op0 lxor op1 in
     v, { z = v = 0; n = false; h = false; c = false }
 
-  | Or -> failwith "not implemented: Or"
+  | Or ->
+    let v = op0 lor op1 in
+    v, { z = v = 0; n = false; h = false; c = false }
 
   | Cp ->
     let v = op0 - op1 in
@@ -229,11 +287,21 @@ let execute_alu8 op f op0 op1 =
     let v = ((op1 lsl 1) lor l) land 0xFF in
     v, { z = v = 0; n = false; h = false; c }
 
-  | Rr -> failwith "not implemented: Rr"
+  | Rr ->
+    let l = if c then 0x80 else 0x00 in
+    let c = (op1 land 0x01) <> 0 in
+    let v = ((op1 lsr 1) lor l) land 0xFF in
+    v, { z = v = 0; n = false; h = false; c }
+
   | Sla -> failwith "not implemented: Sla"
   | Sra -> failwith "not implemented: Sra"
   | Swap -> failwith "not implemented: Swap"
-  | Srl -> failwith "not implemented: Srl"
+
+  | Srl ->
+    let c = (op1 land 0x01) <> 0 in
+    let v = (op1 lsr 1) land 0xFF in
+    v, { z = v = 0; n = false; h = false; c }
+
   | Res _ -> failwith "not implemented: Res"
   | Set _ -> failwith "not implemented: Set"
 
@@ -254,58 +322,45 @@ let decode_alu8 cpu op op0 op1 =
   Some { cpu with r; f; uop = U_FETCH }
 
 let decode_alu8_d8 cpu op dst =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_ALU8_M2(op, dst)
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_ALU8_M2(op, dst) }
 
 let decode_alu8_hl cpu op dst =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_ALU8_HL_M2(op, dst)
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_ALU8_HL_M2(op, dst) }
 
 let decode_alu16 cpu op dst src =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_ALU16_M2(op, dst, src)
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_ALU16_M2(op, dst, src) }
 
 let decode_ld_r8_d8 cpu dst =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_LD_R8_D8_M2 dst
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_LD_R8_D8_M2 dst }
 
 let decode_ld_r16_d16 cpu reg =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_LD_R16_D16_M2 reg
+  Some { cpu with r = inc_pc cpu.r; uop = U_LD_R16_D16_M2 reg }
+
+let decode_st_d16_r16 cpu reg =
+  Some { cpu with r = inc_pc cpu.r; uop = U_ST_D16_R16_M2 reg }
+
+let decode_mov_r8_r16 cpu rw dst src =
+  Some { cpu with r = inc_pc cpu.r; uop = match rw with
+      | R -> U_MOV_R8_R16_M2_R(dst, src)
+      | W -> U_MOV_R8_R16_M2_W(dst, src)
   }
 
-let decode_ld_r8_r16 cpu dst src =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_LD_R8_R16_M2(dst, src)
+let decode_mov_hl cpu rw dir reg =
+  Some { cpu with r = inc_pc cpu.r; uop = match rw with
+      | R -> U_MOV_HL_M2_R(dir, reg)
+      | W -> U_MOV_HL_M2_W(dir, reg)
   }
 
-let decode_st_hl cpu dir reg =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_ST_HL_M2(dir, reg)
-  }
+let decode_alu_hl cpu op =
+  Some { cpu with r = inc_pc cpu.r; uop = U_ALU_HL_M2 op }
 
 let decode_jr cpu cc =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_JR_M2 cc
+  Some { cpu with r = inc_pc cpu.r; uop = U_JR_M2 cc
   }
 
-let decode_ret cpu cc ei =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = match cc with
-      | CC_A  -> U_RET_M3 ei
+let decode_ret cpu cc ime =
+  Some { cpu with r = inc_pc cpu.r; uop = match cc with
+      | CC_A  -> U_RET_M3 ime
       | CC_Z  -> U_RET_M2 RCC_Z
       | CC_NZ -> U_RET_M2 RCC_NZ
       | CC_C  -> U_RET_M2 RCC_C
@@ -313,40 +368,31 @@ let decode_ret cpu cc ei =
   }
 
 let decode_push cpu reg =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_PUSH_M2 reg
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_PUSH_M2 reg }
 
 let decode_pop cpu reg =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_POP_M2 reg
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_POP_M2 reg }
 
 let decode_call cpu cc =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_CALL_M2 cc
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_CALL_M2 cc }
+
+let decode_jp cpu cc =
+  Some { cpu with r = inc_pc cpu.r; uop = U_JP_D16_M2 cc }
 
 let decode_movh cpu rw =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_MOV_D8_M2 rw
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_MOV_D8_M2 rw }
 
 let decode_st_c cpu =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_ST_C_M2
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_ST_C_M2 }
 
 let decode_mov_d16_r8 cpu reg rw =
-  Some { cpu with
-    r = { cpu.r with pc = cpu.r.pc + 1 };
-    uop = U_MOV_D16_R8_M2(reg, rw)
-  }
+  Some { cpu with r = inc_pc cpu.r; uop = U_MOV_D16_R8_M2(reg, rw) }
+
+let decode_jp_hl cpu =
+  Some { cpu with r = { cpu.r with pc = (cpu.r.h lsl 8) lor cpu.r.l }; uop = U_FETCH }
+
+let decode_rst cpu i =
+  Some { cpu with r = inc_pc cpu.r; uop = U_RST_M2 i }
 
 let create s =
   { r =
@@ -368,7 +414,7 @@ let create s =
     ; c = false
     }
   ; s
-  ; ei = false
+  ; ime = false
   ; uop = U_FETCH
   }
 
@@ -380,49 +426,70 @@ let step cpu =
     | None -> None
     | Some op ->
       (match op with
+      | 0x00 -> Some { cpu with r = inc_pc r; uop = U_FETCH }
       | 0x01 -> decode_ld_r16_d16 cpu R16S_BC
-      | 0x03 -> decode_alu16      cpu Inc R16S_BC R16S_BC
+      | 0x02 -> decode_mov_r8_r16 cpu W R8_A R16_BC
+      | 0x03 -> decode_alu16      cpu Inc16 R16S_BC R16S_BC
       | 0x04 -> decode_alu8       cpu Inc R8_B R8_B
       | 0x05 -> decode_alu8       cpu Dec R8_B R8_B
       | 0x06 -> decode_ld_r8_d8   cpu R8_B
-      | 0x0A -> decode_ld_r8_r16  cpu R8_A R16_BC
-      | 0x0B -> decode_alu16      cpu Dec R16S_BC R16S_BC
+      | 0x07 -> decode_alu8       cpu Rlc R8_A R8_A
+      | 0x08 -> decode_st_d16_r16 cpu R16S_SP
+      | 0x09 -> decode_alu16      cpu Add16 R16S_HL R16S_BC
+      | 0x0A -> decode_mov_r8_r16 cpu R R8_A R16_BC
+      | 0x0B -> decode_alu16      cpu Dec16 R16S_BC R16S_BC
       | 0x0C -> decode_alu8       cpu Inc R8_C R8_C
       | 0x0D -> decode_alu8       cpu Dec R8_C R8_C
       | 0x0E -> decode_ld_r8_d8   cpu R8_C
+      | 0x0F -> decode_alu8       cpu Rrc R8_A R8_A
+      | 0x10 -> failwith "0x10"
       | 0x11 -> decode_ld_r16_d16 cpu R16S_DE
-      | 0x13 -> decode_alu16      cpu Inc R16S_DE R16S_DE
+      | 0x12 -> decode_mov_r8_r16 cpu W R8_A R16_DE
+      | 0x13 -> decode_alu16      cpu Inc16 R16S_DE R16S_DE
       | 0x14 -> decode_alu8       cpu Inc R8_D R8_D
       | 0x15 -> decode_alu8       cpu Dec R8_D R8_D
       | 0x16 -> decode_ld_r8_d8   cpu R8_D
       | 0x17 -> decode_alu8       cpu Rl R8_A R8_A
       | 0x18 -> decode_jr         cpu CC_A
-      | 0x1A -> decode_ld_r8_r16  cpu R8_A R16_DE
-      | 0x1B -> decode_alu16      cpu Dec R16S_DE R16S_DE
+      | 0x19 -> decode_alu16      cpu Add16 R16S_HL R16S_DE
+      | 0x1A -> decode_mov_r8_r16 cpu R R8_A R16_DE
+      | 0x1B -> decode_alu16      cpu Dec16 R16S_DE R16S_DE
       | 0x1C -> decode_alu8       cpu Inc R8_E R8_E
       | 0x1D -> decode_alu8       cpu Dec R8_E R8_E
       | 0x1E -> decode_ld_r8_d8   cpu R8_E
+      | 0x1F -> decode_alu8       cpu Rr R8_A R8_A
       | 0x20 -> decode_jr         cpu CC_NZ
       | 0x21 -> decode_ld_r16_d16 cpu R16S_HL
-      | 0x23 -> decode_alu16      cpu Inc R16S_HL R16S_HL
+      | 0x22 -> decode_mov_hl     cpu W D_Inc R8_A
+      | 0x23 -> decode_alu16      cpu Inc16 R16S_HL R16S_HL
       | 0x24 -> decode_alu8       cpu Inc R8_H R8_H
       | 0x25 -> decode_alu8       cpu Dec R8_H R8_H
-      | 0x22 -> decode_st_hl      cpu D_Inc R8_A
       | 0x26 -> decode_ld_r8_d8   cpu R8_H
+      | 0x27 -> failwith "DAA"
       | 0x28 -> decode_jr         cpu CC_Z
-      | 0x2B -> decode_alu16      cpu Dec R16S_HL R16S_HL
+      | 0x29 -> decode_alu16      cpu Add16 R16S_HL R16S_HL
+      | 0x2A -> decode_mov_hl     cpu R D_Inc R8_A
+      | 0x2B -> decode_alu16      cpu Dec16 R16S_HL R16S_HL
       | 0x2C -> decode_alu8       cpu Inc R8_L R8_L
       | 0x2D -> decode_alu8       cpu Dec R8_L R8_L
       | 0x2E -> decode_ld_r8_d8   cpu R8_L
+      | 0x2F -> failwith "CPL"
       | 0x30 -> decode_jr         cpu CC_NC
       | 0x31 -> decode_ld_r16_d16 cpu R16S_SP
-      | 0x32 -> decode_st_hl      cpu D_Dec R8_A
-      | 0x33 -> decode_alu16      cpu Inc R16S_SP R16S_SP
+      | 0x32 -> decode_mov_hl     cpu W D_Dec R8_A
+      | 0x33 -> decode_alu16      cpu Inc16 R16S_SP R16S_SP
+      | 0x34 -> decode_alu_hl     cpu Inc
+      | 0x35 -> decode_alu_hl     cpu Dec
+      | 0x36 -> failwith "0x36"
+      | 0x37 -> failwith "SCF"
       | 0x38 -> decode_jr         cpu CC_C
-      | 0x3B -> decode_alu16      cpu Dec R16S_SP R16S_SP
+      | 0x39 -> decode_alu16      cpu Add16 R16S_HL R16S_SP
+      | 0x3A -> decode_mov_hl     cpu R D_Dec R8_A
+      | 0x3B -> decode_alu16      cpu Dec16 R16S_SP R16S_SP
       | 0x3C -> decode_alu8       cpu Inc R8_A R8_A
       | 0x3D -> decode_alu8       cpu Dec R8_A R8_A
       | 0x3E -> decode_ld_r8_d8   cpu R8_A
+      | 0x3F -> failwith "CCF"
       | 0x40 -> decode_alu8       cpu Mov R8_B R8_B
       | 0x41 -> decode_alu8       cpu Mov R8_B R8_C
       | 0x42 -> decode_alu8       cpu Mov R8_B R8_D
@@ -471,14 +538,14 @@ let step cpu =
       | 0x6D -> decode_alu8       cpu Mov R8_L R8_L
       | 0x6E -> decode_alu8_hl    cpu Mov R8_L
       | 0x6F -> decode_alu8       cpu Mov R8_L R8_A
-      | 0x70 -> decode_st_hl      cpu D_Nop R8_B
-      | 0x71 -> decode_st_hl      cpu D_Nop R8_C
-      | 0x72 -> decode_st_hl      cpu D_Nop R8_D
-      | 0x73 -> decode_st_hl      cpu D_Nop R8_E
-      | 0x74 -> decode_st_hl      cpu D_Nop R8_H
-      | 0x75 -> decode_st_hl      cpu D_Nop R8_L
+      | 0x70 -> decode_mov_hl     cpu W D_Nop R8_B
+      | 0x71 -> decode_mov_hl     cpu W D_Nop R8_C
+      | 0x72 -> decode_mov_hl     cpu W D_Nop R8_D
+      | 0x73 -> decode_mov_hl     cpu W D_Nop R8_E
+      | 0x74 -> decode_mov_hl     cpu W D_Nop R8_H
+      | 0x75 -> decode_mov_hl     cpu W D_Nop R8_L
       | 0x76 -> failwith "not implemented: HALT"
-      | 0x77 -> decode_st_hl      cpu D_Nop R8_A
+      | 0x77 -> decode_mov_hl     cpu W D_Nop R8_A
       | 0x78 -> decode_alu8       cpu Mov R8_A R8_B
       | 0x79 -> decode_alu8       cpu Mov R8_A R8_C
       | 0x7A -> decode_alu8       cpu Mov R8_A R8_D
@@ -553,37 +620,67 @@ let step cpu =
       | 0xBF -> decode_alu8       cpu Cp  R8_A R8_A
       | 0xC0 -> decode_ret        cpu CC_NZ false
       | 0xC1 -> decode_pop        cpu R16P_BC
+      | 0xC2 -> decode_jp         cpu CC_NZ
+      | 0xC3 -> decode_jp         cpu CC_A
       | 0xC4 -> decode_call       cpu CC_NZ
       | 0xC5 -> decode_push       cpu R16P_BC
       | 0xC6 -> decode_alu8_d8    cpu Add R8_A
+      | 0xC7 -> decode_rst        cpu 0x00
       | 0xC8 -> decode_ret        cpu CC_Z false
       | 0xC9 -> decode_ret        cpu CC_A false
-      | 0xCB -> Some { cpu with r = { r with pc = r.pc + 1 }; uop = U_CB }
+      | 0xCA -> decode_jp         cpu CC_Z
+      | 0xCB -> Some { cpu with r = inc_pc r; uop = U_CB }
       | 0xCC -> decode_call       cpu CC_Z
       | 0xCD -> decode_call       cpu CC_A
       | 0xCE -> decode_alu8_d8    cpu Adc R8_A
+      | 0xCF -> decode_rst        cpu 0x08
       | 0xD0 -> decode_ret        cpu CC_NC false
       | 0xD1 -> decode_pop        cpu R16P_DE
+      | 0xD2 -> decode_jp         cpu CC_NC
+      (* 0xD3 *)
       | 0xD4 -> decode_call       cpu CC_NC
       | 0xD5 -> decode_push       cpu R16P_DE
       | 0xD6 -> decode_alu8_d8    cpu Sub R8_A
+      | 0xD7 -> decode_rst        cpu 0x10
       | 0xD8 -> decode_ret        cpu CC_C false
       | 0xD9 -> decode_ret        cpu CC_A true
+      | 0xDA -> decode_jp         cpu CC_C
+      (* 0xDB *)
       | 0xDC -> decode_call       cpu CC_C
       | 0xDE -> decode_alu8_d8    cpu Sbc R8_A
+      | 0xDF -> decode_rst        cpu 0x18
       | 0xE0 -> decode_movh       cpu W
       | 0xE1 -> decode_pop        cpu R16P_HL
       | 0xE2 -> decode_st_c       cpu
+      (* 0xE3 *)
+      (* 0xE4 *)
       | 0xE5 -> decode_push       cpu R16P_HL
       | 0xE6 -> decode_alu8_d8    cpu And R8_A
+      | 0xE7 -> decode_rst        cpu 0x20
+      | 0xE8 -> failwith "0xE8"
+      | 0xE9 -> decode_jp_hl      cpu
       | 0xEA -> decode_mov_d16_r8 cpu R8_A W
+      (* 0xEB *)
+      (* 0xEC *)
+      (* 0xED *)
       | 0xEE -> decode_alu8_d8    cpu Xor R8_A
+      | 0xEF -> decode_rst        cpu 0x28
       | 0xF0 -> decode_movh       cpu R
       | 0xF1 -> decode_pop        cpu R16P_AF
+      | 0xF2 -> failwith "0xF2"
+      | 0xF3 -> Some { cpu with r = inc_pc r; ime = false; uop = U_FETCH }
+      (* 0xF4 *)
       | 0xF5 -> decode_push       cpu R16P_AF
       | 0xF6 -> decode_alu8_d8    cpu Or R8_A
+      | 0xF7 -> decode_rst        cpu 0x30
+      | 0xF8 -> failwith "0xF8"
+      | 0xF9 -> decode_alu16      cpu Mov16 R16S_SP R16S_HL
       | 0xFA -> decode_mov_d16_r8 cpu R8_A R
+      | 0xFB -> Some { cpu with r = inc_pc r; ime = true; uop = U_FETCH }
+      (* 0xFC *)
+      (* 0xFD *)
       | 0xFE -> decode_alu8_d8    cpu Cp R8_A
+      | 0xFF -> decode_rst        cpu 0x38
       | op ->
         Printf.eprintf "invalid opcode: %x\n" op;
         exit (-1)
@@ -602,6 +699,17 @@ let step cpu =
       | 0x15 -> decode_alu8 cpu Rl R8_L R8_L
       | 0x16 -> failwith "not implemented: 0x16"
       | 0x17 -> decode_alu8 cpu Rl R8_A R8_A
+
+      | 0x18 -> decode_alu8 cpu Rr R8_B R8_B
+      | 0x19 -> decode_alu8 cpu Rr R8_C R8_C
+      | 0x1A -> decode_alu8 cpu Rr R8_D R8_D
+      | 0x1B -> decode_alu8 cpu Rr R8_E R8_E
+      | 0x1C -> decode_alu8 cpu Rr R8_H R8_H
+      | 0x1D -> decode_alu8 cpu Rr R8_L R8_L
+      | 0x1E -> failwith "not implemented: 0x1E"
+      | 0x1F -> decode_alu8 cpu Rr R8_A R8_A
+
+      | 0x38 -> decode_alu8 cpu Srl R8_B R8_B
       | 0x40 -> decode_alu8 cpu (Bit 0) R8_B R8_B
       | 0x44 -> decode_alu8 cpu (Bit 0) R8_H R8_H
       | 0x48 -> decode_alu8 cpu (Bit 1) R8_B R8_B
@@ -623,69 +731,48 @@ let step cpu =
         exit (-1)
       )
     )
-  | U_LD_R8_R16_M2(dst, src) ->
-      let addr =
-        match src with
-        | R16_BC -> (r.b lsl 8) lor r.c
-        | R16_DE -> (r.d lsl 8) lor r.e
-        | R16_HL -> (r.h lsl 8) lor r.l
-      in
+  | U_MOV_R8_R16_M2_R(r8, r16) ->
+      let addr = get_reg_16 r r16 in
       System.read s addr |> Option.map (fun v ->
-        let r =
-          match dst with
-          | R8_B -> { r with b = v }
-          | R8_C -> { r with c = v }
-          | R8_D -> { r with d = v }
-          | R8_E -> { r with e = v }
-          | R8_H -> { r with h = v }
-          | R8_L -> { r with l = v }
-          | R8_A -> { r with a = v }
-        in
-        { cpu with r; uop = U_FETCH }
+        { cpu with r = (set_reg_8 r r8 v); uop = U_FETCH }
       )
+  | U_MOV_R8_R16_M2_W(r8, r16) ->
+    let addr = get_reg_16 r r16 in
+    let v = get_reg_8 r r8 in
+    System.write s addr v |> Option.map (fun s ->
+      { cpu with s; uop = U_FETCH }
+    )
   | U_LD_R16_D16_M2 reg ->
-    System.read s r.pc |> Option.map (fun v ->
-      let pc = r.pc + 1 in
+    read_imm cpu (fun cpu v ->
       let r = match reg with
-        | R16S_BC -> { r with pc; c = v }
-        | R16S_DE -> { r with pc; e = v }
-        | R16S_HL -> { r with pc; l = v }
-        | R16S_SP -> { r with pc; sp = (r.sp land 0xFF00) lor v }
+        | R16S_BC -> { cpu.r with c = v }
+        | R16S_DE -> { cpu.r with e = v }
+        | R16S_HL -> { cpu.r with l = v }
+        | R16S_SP -> { cpu.r with sp = (r.sp land 0xFF00) lor v }
       in
       { cpu with r; uop = U_LD_R16_D16_M3 reg }
     )
   | U_LD_R16_D16_M3 reg ->
-    System.read s r.pc |> Option.map (fun v ->
-      let pc = r.pc + 1 in
+    read_imm cpu (fun cpu v ->
       let r = match reg with
-        | R16S_BC -> { r with pc; b = v }
-        | R16S_DE -> { r with pc; d = v }
-        | R16S_HL -> { r with pc; h = v }
-        | R16S_SP -> { r with pc; sp = (r.sp land 0x00FF) lor (v lsl 8) }
+        | R16S_BC -> { cpu.r with b = v }
+        | R16S_DE -> { cpu.r with d = v }
+        | R16S_HL -> { cpu.r with h = v }
+        | R16S_SP -> { cpu.r with sp = (r.sp land 0x00FF) lor (v lsl 8) }
       in
       { cpu with r; uop = U_FETCH }
     )
   | U_JR_M2 cc ->
-    System.read s r.pc |> Option.map (fun off ->
-      let taken = match cc with
-        | CC_Z -> f.z
-        | CC_NZ -> not f.z
-        | CC_C -> f.c
-        | CC_NC -> not f.c
-        | CC_A -> true
-      in
-      { cpu with
-        r = { r with pc = r.pc + 1};
-        uop = if taken then U_JR_M3 off else U_FETCH
-      }
+    read_imm cpu (fun cpu off ->
+      { cpu with uop = if is_taken cc f then U_JR_M3 off else U_FETCH }
     )
   | U_JR_M3 off ->
     Some({
       cpu with
-        r = { r with pc = (r.pc + i8_of_u8 off) land 0xFF};
+        r = { r with pc = (r.pc + i8_of_u8 off) land 0xFFFF };
         uop = U_FETCH
     })
-  | U_ST_HL_M2(op, d) ->
+  | U_MOV_HL_M2_W(op, d) ->
     let v = get_reg_8 r d in
     let addr = (r.h lsl 8) lor r.l in
     System.write s addr v |> Option.map (fun s ->
@@ -703,22 +790,30 @@ let step cpu =
         uop = U_FETCH
       }
     )
+  | U_MOV_HL_M2_R(op, d) ->
+    let addr = (r.h lsl 8) lor r.l in
+    System.read s addr |> Option.map (fun v ->
+      let hl =
+        match op with
+        | D_Nop -> addr
+        | D_Inc -> (addr + 1) land 0xFFFF
+        | D_Dec -> (addr - 1) land 0xFFFF
+      in
+      let h = (hl land 0xFF00) lsr 8 in
+      let l = (hl land 0x00FF) lsr 0 in
+      { cpu with r = { (set_reg_8 r d v) with h; l }; s; uop = U_FETCH }
+    )
   | U_LD_R8_D8_M2 d ->
-    System.read s r.pc |> Option.map (fun v ->
-      let pc = r.pc + 1 in
-      { cpu with
-        uop = U_FETCH;
-        r = { (set_reg_8 r d v) with pc }
-      }
+    read_imm cpu (fun cpu v ->
+      { cpu with r = set_reg_8 cpu.r d v; uop = U_FETCH; }
     )
   | U_ST_C_M2 ->
     System.write s (0xFF00 + r.c) r.a |> Option.map (fun s ->
       { cpu with s; uop = U_FETCH }
     )
   | U_MOV_D8_M2 rw ->
-    System.read s r.pc |> Option.map (fun a ->
+    read_imm cpu (fun cpu a ->
       { cpu with
-        r = { r with pc = r.pc + 1 };
         uop = match rw with
           | R -> U_MOV_D8_M3_R a
           | W -> U_MOV_D8_M3_W a
@@ -733,22 +828,10 @@ let step cpu =
       { cpu with r = { r with a }; uop = U_FETCH }
     )
   | U_CALL_M2 cc ->
-    System.read s r.pc |> Option.map (fun lo ->
-      { cpu with r = {r with pc = r.pc + 1}; uop = U_CALL_M3(cc, lo) }
-    )
+    read_imm cpu (fun cpu lo -> { cpu with uop = U_CALL_M3(cc, lo) })
   | U_CALL_M3(cc, lo) ->
-    System.read s r.pc |> Option.map (fun hi ->
-      let taken = match cc with
-        | CC_Z -> f.z
-        | CC_NZ -> not f.z
-        | CC_C -> f.c
-        | CC_NC -> not f.c
-        | CC_A -> true
-      in
-      { cpu with
-        r = { r with pc = r.pc + 1};
-        uop = if taken then U_CALL_M4(lo, hi) else U_FETCH
-      }
+    read_imm cpu (fun cpu hi ->
+      { cpu with uop = if is_taken cc f then U_CALL_M4(lo, hi) else U_FETCH }
     )
   | U_CALL_M4(lo, hi) ->
     let sp = (r.sp - 1) land 0xFFFF in
@@ -768,6 +851,16 @@ let step cpu =
       let pc = (pc_hi lsl 8) lor lo in
       { cpu with r = { r with pc }; s; uop = U_FETCH }
     )
+
+  | U_JP_D16_M2 cc ->
+    read_imm cpu (fun cpu lo -> { cpu with uop = U_JP_D16_M3(cc, lo) })
+  | U_JP_D16_M3(cc, lo) ->
+    read_imm cpu (fun cpu hi ->
+      { cpu with uop = if is_taken cc f then U_JP_D16_M4(lo, hi) else U_FETCH }
+    )
+  | U_JP_D16_M4(lo, hi) ->
+    Some { cpu with r = { r with pc = (hi lsl 8) lor lo }; uop = U_FETCH }
+
   | U_PUSH_M2 dd ->
     let sp = (r.sp - 1) land 0xFFFF in
     Some { cpu with r = { r with sp }; uop = U_PUSH_M3 dd }
@@ -790,21 +883,35 @@ let step cpu =
       | R16P_BC -> r.c
       | R16P_DE -> r.e
       | R16P_HL -> r.l
-      | R16P_AF -> failwith "not implemented"
+      | R16P_AF ->
+        (if f.z then 0x80 else 0x00)
+        lor
+        (if f.n then 0x40 else 0x00)
+        lor
+        (if f.h then 0x20 else 0x00)
+        lor
+        (if f.c then 0x10 else 0x00)
     in
     System.write s r.sp v |> Option.map (fun s ->
       { cpu with s; uop = U_FETCH }
     )
   | U_POP_M2 dd ->
     System.read s r.sp |> Option.map (fun lo ->
-      let r = match dd with
-        | R16P_BC -> { r with c = lo }
-        | R16P_DE -> { r with e = lo }
-        | R16P_HL -> { r with l = lo }
-        | R16P_AF -> failwith "not implemented"
+      let r, f = match dd with
+        | R16P_BC -> { r with c = lo }, f
+        | R16P_DE -> { r with e = lo }, f
+        | R16P_HL -> { r with l = lo }, f
+        | R16P_AF ->
+          r,
+          { z = (lo land 0x80) <> 0
+          ; n = (lo land 0x40) <> 0
+          ; h = (lo land 0x20) <> 0
+          ; c = (lo land 0x10) <> 0
+          }
       in
       { cpu with
         r = { r with sp = (r.sp + 1) land 0xFFFF };
+        f;
         uop = U_POP_M3 dd
       }
     )
@@ -830,11 +937,11 @@ let step cpu =
       | RCC_NC -> not f.c
     in
     Some { cpu with uop = if taken then U_RET_M3 false else U_FETCH }
-  | U_RET_M3 ei ->
+  | U_RET_M3 ime ->
     System.read s r.sp |> Option.map (fun lo ->
       { cpu with
         r = { r with sp = (r.sp + 1) land 0xFFFF };
-        ei = if ei then true else cpu.ei;
+        ime = if ime then true else cpu.ime;
         uop = U_RET_M4 lo;
       }
     )
@@ -850,34 +957,33 @@ let step cpu =
       r = { r with pc = (hi lsl 8) lor lo };
       uop = U_FETCH
     }
-  | U_ALU16_M2(op, src, dst) ->
-    let v =
-      match src with
-      | R16S_BC -> (r.b lsl 8) lor r.c
-      | R16S_DE -> (r.d lsl 8) lor r.e
-      | R16S_HL -> (r.h lsl 8) lor r.l
-      | R16S_SP -> r.sp
-    in
-    let v = match op with
-      | Inc -> (v + 1) land 0xFFFF
-      | Dec -> (v - 1) land 0xFFFF
+  | U_ALU16_M2(op, reg0, reg1) ->
+    let v0 = get_reg_16s r reg0 in
+    let v1 = get_reg_16s r reg1 in
+    let v, f = match op with
+      | Inc16 -> (v1 + 1) land 0xFFFF, f
+      | Dec16 -> (v1 - 1) land 0xFFFF, f
+      | Add16 ->
+        let v = v0 + v1 in
+        let h = (v0 land 0x0FFF ) > (v1 land 0x0FFF) in
+        let c = v > 0xFFFF in
+        v land 0xFFFF, { z = f.z; n = false; h; c}
+      | Mov16 -> v1, f
     in
     let hi = (v land 0xFF00) lsr 8 in
     let lo = (v land 0x00FF) lsr 0 in
-    let r = match dst with
+    let r = match reg0 with
       | R16S_BC -> { r with b = hi; c = lo }
       | R16S_DE -> { r with d = hi; e = lo }
       | R16S_HL -> { r with h = hi; l = lo }
       | R16S_SP -> { r with sp = v }
     in
-    Some { cpu with r; uop = U_FETCH }
+    Some { cpu with r; f; uop = U_FETCH }
   | U_ALU8_M2(op, dst) ->
-    let v0 = get_reg_8 r dst in
-    System.read s r.pc |> Option.map (fun v1 ->
+    read_imm cpu (fun cpu v1 ->
+      let v0 = get_reg_8 cpu.r dst in
       let v, f = execute_alu8 op cpu.f v0 v1 in
-      let pc = (cpu.r.pc + 1) land 0xFFFF in
-      let r = { (set_reg_8 r dst v) with pc } in
-      { cpu with r; f; uop = U_FETCH }
+      { cpu with r = set_reg_8 cpu.r dst v; f; uop = U_FETCH }
     )
   | U_ALU8_HL_M2(op, dst) ->
     let v0 = get_reg_8 r dst in
@@ -888,27 +994,81 @@ let step cpu =
       { cpu with r; f; uop = U_FETCH }
     )
   | U_MOV_D16_R8_M2(src, rw) ->
-    System.read s r.pc |> Option.map (fun lo ->
-      let pc = (cpu.r.pc + 1) land 0xFFFF in
-      { cpu with r = { r with pc }; uop = U_MOV_D16_R8_M3(src, lo, rw) }
+    read_imm cpu (fun cpu lo ->
+      { cpu with uop = U_MOV_D16_R8_M3(src, lo, rw) }
     )
   | U_MOV_D16_R8_M3(src, lo, rw) ->
-    System.read s r.pc |> Option.map (fun hi ->
-      let pc = (cpu.r.pc + 1) land 0xFFFF in
+    read_imm cpu (fun cpu hi ->
       { cpu with
-        r = { r with pc };
         uop = match rw with
           | R -> U_MOV_D16_R8_M4_R(src, lo, hi)
           | W -> U_MOV_D16_R8_M4_W(src, lo, hi)
       }
     )
-  | U_MOV_D16_R8_M4_R(src, lo, hi) ->
-    failwith "U_MOV_D16_R8_M4_R"
-  | U_MOV_D16_R8_M4_W(src, lo, hi) ->
+  | U_MOV_D16_R8_M4_R(reg, lo, hi) ->
     let addr = (hi lsl 8) lor lo in
-    let v = get_reg_8 r src in
+    System.read s addr |> Option.map (fun v ->
+      { cpu with r = set_reg_8 r reg v; uop = U_FETCH }
+    )
+  | U_MOV_D16_R8_M4_W(reg, lo, hi) ->
+    let addr = (hi lsl 8) lor lo in
+    let v = get_reg_8 r reg in
     System.write s addr v |> Option.map (fun s ->
       { cpu with s; uop = U_FETCH }
+    )
+
+  | U_ALU_HL_M2(op) ->
+    System.read s ((r.h lsl 8) lor r.l) |> Option.map (fun v ->
+      let v, f = execute_alu8 op f v v in
+      { cpu with s; f; uop = U_ALU_HL_M3 v }
+    )
+  | U_ALU_HL_M3(v) ->
+    System.write s ((r.h lsl 8) lor r.l) v |> Option.map (fun s ->
+      { cpu with s; uop = U_FETCH }
+    )
+
+  | U_ST_D16_R16_M2 reg ->
+    read_imm cpu (fun cpu lo -> { cpu with uop = U_ST_D16_R12_M3(reg, lo) })
+  | U_ST_D16_R12_M3(reg, lo) ->
+    read_imm cpu (fun cpu hi -> { cpu with uop = U_ST_D16_R12_M4(reg, lo, hi) })
+  | U_ST_D16_R12_M4(reg, lo, hi) ->
+    let addr = (((hi lsl 8) lor lo) + 0) land 0xFFFF in
+    let v = match reg with
+      | R16S_BC -> r.c
+      | R16S_DE -> r.e
+      | R16S_HL -> r.l
+      | R16S_SP -> ((r.sp land 0x00FF) lsr 0)
+    in
+    System.write s addr v |> Option.map (fun s ->
+      { cpu with s; uop = U_ST_D16_R12_M5(reg, lo, hi) }
+    )
+  | U_ST_D16_R12_M5(reg, lo, hi) ->
+    let addr = (((hi lsl 8) lor lo) + 1) land 0xFFFF in
+    let v = match reg with
+      | R16S_BC -> r.b
+      | R16S_DE -> r.d
+      | R16S_HL -> r.h
+      | R16S_SP -> ((r.sp land 0xFF00) lsr 8)
+    in
+    System.write s addr v |> Option.map (fun s -> { cpu with s; uop = U_FETCH })
+  | U_RST_M2 h ->
+    Some { cpu with
+      r = { r with sp = (r.sp - 1) land 0xFFFF };
+      uop = U_RST_M3 h
+    }
+  | U_RST_M3 h ->
+    System.write s r.sp ((r.pc land 0xFF00) lsr 8) |> Option.map (fun s ->
+      { cpu with r =
+        { r with
+          sp = (r.sp - 1) land 0xFFFF;
+          pc = r.pc land 0xFF
+        };
+        uop = U_RST_M4 h
+      }
+    )
+  | U_RST_M4 h ->
+    System.write s r.sp ((r.pc land 0x00FF) lsr 0) |> Option.map (fun s ->
+      { cpu with r = { r with pc = h }; uop = U_FETCH }
     )
 
 let tick cpu =
