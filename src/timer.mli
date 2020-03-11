@@ -10,6 +10,7 @@ type t
 val create : unit -> t
 
 val clear_div : t -> t option
+val get_div : t -> u8 option
 
 val set_counter : t -> u8 -> t option
 val get_counter : t -> u8 option

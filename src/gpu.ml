@@ -10,18 +10,36 @@ type gpu_state =
   | OAMRead of int
   | VRAMRead of int
 
+type stat =
+  | HBlank
+  | VBlank
+  | OAM
+  | LCD
+
 type t =
   { scroll_x: u8
   ; scroll_y: u8
+
   ; lcd_enable: bool
-  ; lcd_window_tile_map: u16
+  ; lcd_window_tile_map: bool
   ; lcd_window_display: bool
-  ; lcd_bg_window_tile_data: u16
-  ; lcd_bg_window_tile_map: u16
+  ; lcd_bg_window_tile_data: bool
+  ; lcd_bg_window_tile_map: bool
   ; lcd_bg_window_display: bool
   ; lcd_bg_palette: Graphics.color array
-  ; lcd_sprite_size: u8
+  ; lcd_sprite_size: bool
   ; lcd_sprite_display: bool
+
+  ; lcd_stat_lyc: bool
+  ; lcd_stat_oam: bool
+  ; lcd_stat_vblank: bool
+  ; lcd_stat_hblank: bool
+  ; lcd_stat_equ: bool
+  ; lcd_stat_mode: stat
+
+  ; lcd_obj0_palette: Graphics.color array
+  ; lcd_obj1_palette: Graphics.color array
+
   ; lcd_ly: int
   ; lcd_wx: int
   ; lcd_wy: int
@@ -73,11 +91,13 @@ let graphics_scanline gpu =
   in
 
   let bg_pixel y x =
-    let addr = gpu.lcd_bg_window_tile_map + (y lsr 3) * 32 + (x lsr 3) in
+    let map_base = if gpu.lcd_bg_window_tile_map then 0x1C00 else 0x1800 in
+    let addr = map_base + (y lsr 3) * 32 + (x lsr 3) in
     let tile = Char.code (Bytes.get gpu.vram addr) in
     let l = y land 7 in
     let c = 7 - (x land 7) in
-    let pixel = get_tile_pixel tile l c gpu.lcd_bg_window_tile_data in
+    let data_base = if gpu.lcd_bg_window_tile_data then 0x0000 else 0x0800 in
+    let pixel = get_tile_pixel tile l c data_base in
     gpu.lcd_bg_palette.(pixel)
   in
 
@@ -126,15 +146,27 @@ let create () =
 
   { scroll_x = 0
   ; scroll_y = 0
+  (* LCDC *)
   ; lcd_enable = false
-  ; lcd_window_tile_map = 0x1800
+  ; lcd_window_tile_map = false
   ; lcd_window_display = false
-  ; lcd_bg_window_tile_data = 0x0800
-  ; lcd_bg_window_tile_map = 0x1800
+  ; lcd_bg_window_tile_data = false
+  ; lcd_bg_window_tile_map = false
   ; lcd_bg_window_display = false
   ; lcd_bg_palette = Array.init 4 (fun _ -> c00)
-  ; lcd_sprite_size = 8
+  ; lcd_sprite_size = false
   ; lcd_sprite_display = false
+  (* STAT *)
+  ; lcd_stat_lyc = false
+  ; lcd_stat_oam = false
+  ; lcd_stat_vblank = false
+  ; lcd_stat_hblank = false
+  ; lcd_stat_equ = false
+  ; lcd_stat_mode = HBlank
+
+  ; lcd_obj0_palette = Array.init 4 (fun _ -> c00)
+  ; lcd_obj1_palette = Array.init 4 (fun _ -> c00)
+
   ; lcd_ly = 0
   ; lcd_wx = 0
   ; lcd_wy = 0
@@ -143,32 +175,39 @@ let create () =
   ; time = Unix.gettimeofday ()
   }
 
-let vram_read _gpu _addr =
-  failwith "not implemented"
+let vram_read gpu addr =
+  Some (Char.code (Bytes.get gpu.vram addr))
 
 let vram_write gpu addr v =
   let vram = Bytes.copy gpu.vram in
   Bytes.set vram addr (Char.chr v);
   Some { gpu with vram }
 
-let set_bgp gpu v =
-  let lcd_bg_palette =
-    Array.init 4 (fun i ->
-      match (v lsr (i * 2)) land 0x3 with
-      | 0 -> c00
-      | 1 -> c01
-      | 2 -> c10
-      | 3 -> c11
-      | _ -> failwith "unreachable"
-    )
-  in
-  Some { gpu with lcd_bg_palette }
+let mask_to_palette v =
+  Array.init 4 (fun i ->
+    match (v lsr (i * 2)) land 0x3 with
+    | 0 -> c00
+    | 1 -> c01
+    | 2 -> c10
+    | 3 -> c11
+    | _ -> failwith "unreachable"
+  )
+
+let set_bgp gpu v = Some { gpu with lcd_bg_palette = mask_to_palette v}
+let set_obp0 gpu v = Some { gpu with lcd_obj0_palette = mask_to_palette v}
+let set_obp1 gpu v = Some { gpu with lcd_obj1_palette = mask_to_palette v}
 
 let set_scroll_y gpu scroll_y = Some { gpu with scroll_y }
 let get_scroll_y gpu = Some gpu.scroll_y
 
 let set_scroll_x gpu scroll_x = Some { gpu with scroll_x }
 let get_scroll_x gpu = Some gpu.scroll_x
+
+let set_window_x gpu lcd_wx = Some { gpu with lcd_wx }
+let get_window_x gpu = Some gpu.lcd_wx
+
+let set_window_y gpu lcd_wy = Some { gpu with lcd_wy }
+let get_window_y gpu = Some gpu.lcd_wy
 
 let set_lcdc
   gpu
@@ -190,6 +229,32 @@ let set_lcdc
     lcd_sprite_size;
     lcd_sprite_display;
   }
+
+let set_stat
+  gpu
+  lcd_stat_lyc
+  lcd_stat_oam
+  lcd_stat_vblank
+  lcd_stat_hblank
+  lcd_stat_equ
+  lcd_stat_mode =
+  Some { gpu with
+    lcd_stat_lyc;
+    lcd_stat_oam;
+    lcd_stat_vblank;
+    lcd_stat_hblank;
+    lcd_stat_equ;
+    lcd_stat_mode;
+  }
+
+let get_lcd_enable gpu = gpu.lcd_enable
+let get_lcd_window_tile_map gpu = gpu.lcd_window_tile_map
+let get_lcd_window_display gpu = gpu.lcd_window_display
+let get_lcd_bg_window_tile_data gpu = gpu.lcd_bg_window_tile_data
+let get_lcd_bg_window_tile_map gpu = gpu.lcd_bg_window_tile_map
+let get_lcd_bg_window_display gpu = gpu.lcd_bg_window_display
+let get_lcd_sprite_size gpu = gpu.lcd_sprite_size
+let get_lcd_sprite_display gpu = gpu.lcd_sprite_display
 
 
 let get_ly gpu = Some gpu.lcd_ly

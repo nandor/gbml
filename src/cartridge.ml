@@ -2,6 +2,11 @@
 (* Licensing information is available in the LICENSE file. *)
 (* (C) 2020 Nandor Licker. All rights reserved. *)
 
+let load_bank ch =
+  let bank = Buffer.create 0x4000 in
+  Buffer.add_channel bank ch 0x4000;
+  Buffer.to_bytes bank
+
 module MBC1 = struct
   type mode = ROM | RAM
 
@@ -20,13 +25,7 @@ module MBC1 = struct
     ; has_ram
     ; mode = ROM
     ; rom_banks = Array.init rom_banks (fun i ->
-        if i == 0 then
-          bank0
-        else begin
-          let bank = Buffer.create 0x4000 in
-          Buffer.add_channel bank ch 0x4000;
-          Buffer.to_bytes bank
-        end
+        if i == 0 then bank0 else load_bank ch
       )
     ; ram_banks = None
     }
@@ -41,8 +40,7 @@ module MBC1 = struct
       cart.ram_banks |> Option.map (fun ram_banks ->
         Char.code (Bytes.get ram_banks.(cart.ram_bank) (addr - 0xA000))
       )
-    | _ ->
-      failwith "MBC1.read"
+    | _ -> failwith (Printf.sprintf "MBC1.read %04x" addr)
 
   let write cart addr v =
     match addr land 0xF000 with
@@ -70,8 +68,7 @@ module MBC1 = struct
         Bytes.set ram_banks.(cart.ram_bank) (addr - 0xA000) (Char.chr v);
         cart
       )
-    | _ ->
-      failwith (Printf.sprintf "MBC1.write %04x %02x" addr v)
+    | _ -> failwith (Printf.sprintf "MBC1.write %04x %02x" addr v)
 end
 
 module MBC2 = struct
@@ -92,9 +89,7 @@ let load path =
   let ch = open_in path in
 
   (* Read the .gb file header and the first bank *)
-  let bank0 = Buffer.create 0x4000 in
-  Buffer.add_channel bank0 ch 0x4000;
-  let bank0 = Buffer.to_bytes bank0 in
+  let bank0 = load_bank ch in
 
   (* Find the ROM size *)
   let rom_banks =
@@ -119,19 +114,22 @@ let load path =
   (* Decide what kind of cartridge this is *)
   let cart =
     match Char.code (Bytes.get bank0 0x147) with
-    | 0x01 -> Cart_MBC1 (MBC1.load rom_banks
+    | 0x00 | 0x01 ->
+      Cart_MBC1 (MBC1.load rom_banks
         bank0
         ch
         ~has_ram:false
         ~has_battery:false
       )
-    | 0x02 -> Cart_MBC1 (MBC1.load rom_banks
+    | 0x02 ->
+      Cart_MBC1 (MBC1.load rom_banks
         bank0
         ch
         ~has_ram:true
         ~has_battery:false
       )
-    | 0x03 -> Cart_MBC1 (MBC1.load rom_banks
+    | 0x03 ->
+      Cart_MBC1 (MBC1.load rom_banks
         bank0
         ch
         ~has_ram:true

@@ -33,20 +33,14 @@ let create () =
   ; clock_main = 0
   }
 
-let clear_div t =
-  Some { t with timer_div = 0 }
+let clear_div t = Some { t with timer_div = 0 }
+let get_div t  = Some t.timer_div
 
-let set_counter t timer_counter =
-  Some { t with timer_counter }
+let set_counter t timer_counter = Some { t with timer_counter }
+let get_counter t = Some t.timer_counter
 
-let get_counter t =
-  Some t.timer_counter
-
-let set_modulo t timer_modulo =
-  Some { t with timer_modulo }
-
-let get_modulo t =
-  Some t.timer_modulo
+let set_modulo t timer_modulo = Some { t with timer_modulo }
+let get_modulo t = Some t.timer_modulo
 
 let set_control t timer_enable timer_freq =
   Some { t with timer_enable; timer_freq }

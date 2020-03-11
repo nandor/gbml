@@ -125,6 +125,8 @@ let read s addr =
     (* TODO: Serial transfer data *)
     Some 0x00
 
+  (* DIV *)
+  | 0xFF04 -> Timer.get_div timer
   (* TIMA: Timer Counter *)
   | 0xFF05 -> Timer.get_counter timer
 
@@ -145,6 +147,19 @@ let read s addr =
 
   | 0xFF26 ->
     Some 0x00
+
+  | 0xFF40 -> Some
+    (
+      (if Gpu.get_lcd_enable gpu              then 0x80 else 0x00) lor
+      (if Gpu.get_lcd_window_tile_map gpu     then 0x40 else 0x00) lor
+      (if Gpu.get_lcd_window_display gpu      then 0x20 else 0x00) lor
+      (if Gpu.get_lcd_bg_window_tile_data gpu then 0x10 else 0x00) lor
+      (if Gpu.get_lcd_bg_window_tile_map gpu  then 0x08 else 0x00) lor
+      (if Gpu.get_lcd_bg_window_display gpu   then 0x01 else 0x00) lor
+      (if Gpu.get_lcd_sprite_size gpu         then 0x04 else 0x00) lor
+      (if Gpu.get_lcd_sprite_display gpu      then 0x02 else 0x00)
+    )
+
   | 0xFF42 -> Gpu.get_scroll_y gpu
   | 0xFF43 -> Gpu.get_scroll_x gpu
   | 0xFF44 -> Gpu.get_ly gpu
@@ -170,7 +185,7 @@ let read s addr =
     Printf.eprintf "cannot read from %x\n" addr;
     exit (-1)
 
-let write s addr v =
+let rec write s addr v =
   let { gpu; sound; high_ram; ram; cart; timer; input } = s in
   match addr land 0xF000 with
   | 0x0000 | 0x1000 | 0x2000 | 0x3000
@@ -243,12 +258,28 @@ let write s addr v =
   | 0xFF14 ->
     (* TODO: Sound 1 Register, Frequency High Bits *)
     Some s
+
+  | 0xFF16 ->
+    (* TODO: Sound 2 Register, Sound Length/Wave pattern duty *)
+    Some s
+  | 0xFF17 ->
+    (* TODO: Sound 2 Register, Envelope *)
+    Some s
+  | 0xFF18 ->
+    (* TODO: Sound 2 Register, Frequency Low Bits *)
+    Some s
+  | 0xFF19 ->
+    (* TODO: Sound 2 Register, Frequency High Bits *)
+    Some s
+
   | 0xFF24 ->
     (* TODO: Channel control on/off *)
     Some s
+
   | 0xFF25 ->
     (* TODO: Selection of Sound Output Terminal *)
     Some s
+
   | 0xFF26 ->
     (* Writing to the 7th bit enables/disables sound *)
     Sound.(if v land 7 = 1 then enable else disable) sound |> Option.map
@@ -258,20 +289,55 @@ let write s addr v =
     Gpu.set_lcdc
       gpu
       (v land 0x80 <> 0)
-      (if v land 0x40 <> 0 then 0x1C00 else 0x1800)
+      (v land 0x40 <> 0)
       (v land 0x20 <> 0)
-      (if v land 0x10 <> 0 then 0x0000 else 0x0800)
-      (if v land 0x08 <> 0 then 0x1C00 else 0x1800)
+      (v land 0x10 <> 0)
+      (v land 0x08 <> 0)
       (v land 0x01 <> 0)
-      (if v land 0x04 <> 0 then 16 else 8)
+      (v land 0x04 <> 0)
       (v land 0x02 <> 0)
       |> Option.map (fun gpu -> { s with gpu })
+  | 0xFF41 ->
+    Gpu.set_stat
+      gpu
+      (v land 0x40 <> 0x00)
+      (v land 0x20 <> 0x00)
+      (v land 0x10 <> 0x00)
+      (v land 0x08 <> 0x00)
+      (v land 0x04 <> 0x00)
+      (match v land 0x03 with
+      | 0 -> HBlank
+      | 1 -> VBlank
+      | 2 -> OAM
+      | 3 -> LCD
+      | _ -> failwith "unreachable"
+      )
+      |> Option.map (fun gpu -> { s with gpu })
+
   | 0xFF42 ->
     Gpu.set_scroll_y gpu v |> Option.map (fun gpu -> { s with gpu })
   | 0xFF43 ->
     Gpu.set_scroll_x gpu v |> Option.map (fun gpu -> { s with gpu })
-  | 0xFF47 ->
-    Gpu.set_bgp gpu v |> Option.map (fun gpu -> { s with gpu })
+
+  | 0xFF46 ->
+    let rec loop i src dst s =
+      if i = 160 then
+        Some s
+      else
+        match read s src with
+        | None -> None
+        | Some v ->
+          match write s dst v with
+          | None -> None
+          | Some s ->
+            loop (i + 1) (src + 1) (dst + 1) s
+    in loop 0 (v lsl 8) 0xFE00 s
+
+  | 0xFF47 -> Gpu.set_bgp gpu v |> Option.map (fun gpu -> { s with gpu })
+  | 0xFF48 -> Gpu.set_obp0 gpu v |> Option.map (fun gpu -> { s with gpu })
+  | 0xFF49 -> Gpu.set_obp1 gpu v |> Option.map (fun gpu -> { s with gpu })
+  | 0xFF4A -> Gpu.set_window_y gpu v |> Option.map (fun gpu -> { s with gpu })
+  | 0xFF4B -> Gpu.set_window_x gpu v |> Option.map (fun gpu -> { s with gpu })
 
   | 0xFF50 ->
     Some { s with boot_rom_enabled = false; }
