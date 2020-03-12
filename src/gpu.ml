@@ -108,7 +108,7 @@ let graphics_scanline gpu =
     Graphics.red
   in
 
-  let ly = gpu.lcd_ly - 1 in
+  let ly = gpu.lcd_ly in
   if gpu.lcd_bg_window_display then begin
     let y = (gpu.scroll_y + ly) land 0xFF in
     for lx = 0 to cols - 1 do
@@ -276,7 +276,11 @@ let set_lcdc
       0, gpu.lcd_lyc = 0, ST_HBlank 0
     end else if not lcd_enable && gpu.lcd_enable then begin
       (* LCD turned off *)
-      0, gpu.lcd_stat_equ, gpu.state
+      (match gpu.state with
+      | ST_VBlank _ -> ()
+      | _ -> failwith "LCD turned out outside V-Sync"
+      );
+      0, gpu.lcd_stat_equ, ST_HBlank 0
     end else
       (* No change *)
       gpu.lcd_ly, gpu.lcd_stat_equ, gpu.state
@@ -339,19 +343,20 @@ let update gpu =
       (false, false, false, false),
       { gpu with state = ST_HBlank (n + 1) }
     )
-  | ST_HBlank n ->
+  | ST_HBlank _ ->
     let lcd_ly = gpu.lcd_ly + 1 in
     let lcd_stat_equ = lcd_ly = gpu.lcd_lyc in
-    if lcd_ly > rows then begin
+    if lcd_ly >= 144 then begin
       (* VBlank here *)
-      let gpu = { gpu with lcd_ly; state = ST_VBlank 0; lcd_stat_equ } in
-      graphics_vblank gpu;
-      Some ((false, true, false, lcd_stat_equ), gpu)
+      Some (
+        (false, true, false, lcd_stat_equ),
+        { gpu with lcd_ly; state = ST_VBlank 0; lcd_stat_equ }
+      )
     end else begin
-      (* Scanline here *)
-      let gpu = { gpu with lcd_ly; state = ST_HBlank 0; lcd_stat_equ } in
-      graphics_scanline gpu;
-      Some ((false, false, false, lcd_stat_equ), gpu)
+      Some (
+        (false, false, false, lcd_stat_equ),
+        { gpu with lcd_ly; state = ST_OAMRead 0; lcd_stat_equ }
+      )
     end
 
   | ST_VBlank n when n < 114 ->
@@ -360,7 +365,8 @@ let update gpu =
       { gpu with state = ST_VBlank (n + 1) }
     )
   | ST_VBlank _ ->
-    let ended = gpu.lcd_ly >= rows + 10 in
+    let ended = gpu.lcd_ly >= 153 in
+    if ended then graphics_vblank gpu;
     let lcd_ly = if ended then 0 else gpu.lcd_ly + 1 in
     let state = if ended then ST_OAMRead 0 else ST_VBlank 0 in
     let lcd_stat_equ = gpu.lcd_lyc = lcd_ly in
@@ -387,7 +393,7 @@ let update gpu =
       { gpu with state = ST_VRAMRead (n + 1) }
     )
   | ST_VRAMRead _ ->
-    (* Frame done here - wait for it to finish. *)
+    graphics_scanline gpu;
     Some (
       (false, false, false, false),
       { gpu with state = ST_HBlank 0; time = Unix.gettimeofday () }

@@ -384,6 +384,7 @@ let tick s =
       match Gpu.tick s.gpu with
       | None -> None
       | Some ((inStat, inVBlank), gpu) ->
+        if inStat then Printf.eprintf "INTERRUPT\n";
         let is =
           { isPins   = s.is.isPins || inPins
           ; isSerial = s.is.isSerial
