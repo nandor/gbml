@@ -51,11 +51,6 @@ type t =
   ; time: float
   }
 
-type i =
-  { igStat: bool
-  ; igVBlank: bool
-  }
-
 let c00 = Graphics.rgb 0xFF 0xFF 0xFF
 let c01 = Graphics.rgb 0xAA 0xAA 0xAA
 let c10 = Graphics.rgb 0x66 0x66 0x66
@@ -104,8 +99,8 @@ let graphics_scanline gpu =
     gpu.lcd_bg_palette.(pixel)
   in
 
-  let wnd_pixel y x =
-    Graphics.red
+  let wnd_pixel _y _x =
+    failwith "not implemented"
   in
 
   let ly = gpu.lcd_ly in
@@ -126,38 +121,7 @@ let graphics_scanline gpu =
   end;
 
   if gpu.lcd_sprite_display then begin
-    for i = 39 downto 0 do
-      let y0 = Char.code (Bytes.get gpu.oam ((i lsl 2) + 0)) in
-      let x0 = Char.code (Bytes.get gpu.oam ((i lsl 2) + 1)) in
-      let p  = Char.code (Bytes.get gpu.oam ((i lsl 2) + 2)) in
-      let f  = Char.code (Bytes.get gpu.oam ((i lsl 2) + 3)) in
-
-      if max 0 (y0 - 16) <= ly && ly <= min (y0 - 8) 144 then begin
-        for x = (min x0 160) - 1 downto max 0 (x0 - 8) do
-          (*
-          xx = ( f & 0x20 ) ? ( 15 - x + x0 ) : ( x - x0 );
-          yy = ( f & 0x40 ) ? ( 7 - ly + y0 ) : ( ly - y0 );
-          vidx = ( ly * 160 + x ) << 2;
-
-          if ( !( f & 0x80 ) || emu.lcd_vram[ vidx ] == get_color( emu.lcd_bg, 0x00 ) )
-          {
-            pix = get_tile_pixel( p, yy & 7, 7 - ( xx & 7 ), 0x8000 );
-
-            if ( pix != 0x00 )
-            {
-              pix = get_color( f & 0x10 ? emu.lcd_obp1 : emu.lcd_obp0, pix );
-
-              emu.lcd_vram[ vidx + 0 ] = pix;
-              emu.lcd_vram[ vidx + 1 ] = pix;
-              emu.lcd_vram[ vidx + 2 ] = pix;
-              emu.lcd_vram[ vidx + 3 ] = 0xFF;
-            }
-          }
-          *)
-          failwith "WTF"
-        done
-      end
-    done
+    failwith "not implemented"
   end
 
 let graphics_vblank gpu =

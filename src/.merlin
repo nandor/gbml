@@ -1,8 +1,0 @@
-EXCLUDE_QUERY_DIR
-B /home/nand/.opam/default/lib/graphics
-B /usr/lib/ocaml
-B ../_build/default/src/.gbc_ml.eobjs/byte
-S /home/nand/.opam/default/lib/graphics
-S /usr/lib/ocaml
-S .
-FLG -open Dune__exe -w -40

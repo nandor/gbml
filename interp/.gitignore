@@ -1,0 +1,23 @@
+# This file is part of the GBC-ML project.
+# Licensing information is available in the LICENSE file.
+# (C) 2020 Nandor Licker. All rights reserved.
+
+# Coq
+*.vo
+*.vok
+*.vos
+*.glob
+*.aux
+.merlin
+
+# OCaml
+*.cmx
+*.cmi
+*.o
+
+# Extracted sources
+cpu.ml
+cpu.mli
+
+# Executables
+gbml

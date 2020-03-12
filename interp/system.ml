@@ -99,7 +99,7 @@ let create cart gpu sound timer input =
   }
 
 let read s addr =
-  let { gpu; sound; high_ram; cart; ram; timer; boot_rom_enabled; ie; is } = s in
+  let { gpu; high_ram; cart; ram; timer; boot_rom_enabled; ie; is; _ } = s in
   match addr land 0xF000 with
   | 0x0000 | 0x1000 | 0x2000 | 0x3000
   | 0x4000 | 0x5000 | 0x6000 | 0x7000 ->
@@ -113,13 +113,13 @@ let read s addr =
     Cartridge.read cart addr
   | 0xC000 | 0xD000 ->
     Some (Char.code (Bytes.get ram (addr - 0xC000)))
-  | op when 0xE000 <= addr && addr < 0xFE00 ->
+  | _ when 0xE000 <= addr && addr < 0xFE00 ->
     Some (Char.code (Bytes.get ram (addr - 0xE000)))
-  | op when 0xFE00 <= addr && addr < 0xFEA0 ->
+  | _ when 0xFE00 <= addr && addr < 0xFEA0 ->
     Gpu.oam_read gpu (addr - 0xFE00)
-  | op when 0xFF80 <= addr && addr < 0xFFFF ->
+  | _ when 0xFF80 <= addr && addr < 0xFFFF ->
     Some (Char.code (Bytes.get high_ram (addr - 0xFF80)))
-  | op -> match addr with
+  | _ -> match addr with
   | 0xFF00 ->
     (* TODO: Joy pad register *)
     Some 0x00
@@ -197,12 +197,12 @@ let read s addr =
       (if ie.ieStat   then 0x02 else 0x00) lor
       (if ie.ieVBlank then 0x01 else 0x00)
     )
-  | op ->
+  | _ ->
     Printf.eprintf "cannot read from %x\n" addr;
     exit (-1)
 
 let write s addr v =
-  let { gpu; sound; high_ram; ram; cart; timer; input } = s in
+  let { gpu; sound; high_ram; ram; cart; timer; input; _ } = s in
   match addr land 0xF000 with
   | 0x0000 | 0x1000 | 0x2000 | 0x3000
   | 0x4000 | 0x5000 | 0x6000 | 0x7000 ->
@@ -216,15 +216,15 @@ let write s addr v =
   | 0xC000 | 0xD000 ->
     Bytes.set ram (addr - 0xC000) (Char.chr v);
     Some s
-  | op when 0xE000 <= addr && addr < 0xFE00 ->
+  | _ when 0xE000 <= addr && addr < 0xFE00 ->
     Bytes.set ram (addr - 0xE000) (Char.chr v);
     Some s
-  | op when 0xFE00 <= addr && addr < 0xFEA0 ->
+  | _ when 0xFE00 <= addr && addr < 0xFEA0 ->
     Gpu.vram_write gpu (addr - 0xFE00) v |> Option.map (fun gpu -> { s with gpu })
-  | op when 0xFF80 <= addr && addr <= 0xFFFE ->
+  | _ when 0xFF80 <= addr && addr <= 0xFFFE ->
     Bytes.set high_ram (addr - 0xFF80) (Char.chr v);
     Some s
-  | op -> match addr with
+  | _ -> match addr with
   (* P1 *)
   | 0xFF00 ->
     Input.write input v |> Option.map (fun input -> { s with input })
@@ -346,7 +346,7 @@ let write s addr v =
     let ieVBlank = (v land 0x01) <> 0 in
     Some { s with ie = { iePins; ieSerial; ieTimer; ieStat; ieVBlank } }
 
-  | op ->
+  | _ ->
     Printf.eprintf "cannot write to %x\n" addr;
     exit (-1)
 

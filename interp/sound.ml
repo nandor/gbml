@@ -12,15 +12,15 @@ let create () =
   { is_enabled = true
   }
 
-let enable s = Some { s with is_enabled = true }
+let enable _s = Some { is_enabled = true }
 
-let disable s = Some { s with is_enabled = false }
+let disable _s = Some { is_enabled = false }
 
 let is_enabled s =
   s.is_enabled
 
-let set_sound_freq_lo s snd f =
+let set_sound_freq_lo s _snd _f =
   Some s
 
-let is_sound_enabled s snd =
+let is_sound_enabled s _snd =
   s.is_enabled

@@ -9,8 +9,8 @@ let () =
   let gpu = Gpu.create () in
   let sound = Sound.create () in
   let input = Input.create () in
-  let mem = System.create cart gpu sound timer input in
-  let cpu = Cpu.create mem in
+  let sys = System.create cart gpu sound timer input in
+  let cpu = Cpu.create sys in
 
   (* Main loop *)
   let rec loop cpu =

@@ -14,6 +14,7 @@ module MBC1 = struct
     { rom_bank: int
     ; ram_bank: int
     ; has_ram: bool
+    ; has_battery: bool
     ; mode: mode
     ; rom_banks: bytes array
     ; ram_banks: (bytes array) option
@@ -23,6 +24,7 @@ module MBC1 = struct
     { rom_bank = 1
     ; ram_bank = 0
     ; has_ram
+    ; has_battery
     ; mode = ROM
     ; rom_banks = Array.init rom_banks (fun i ->
         if i == 0 then bank0 else load_bank ch
@@ -63,6 +65,8 @@ module MBC1 = struct
           lor
           (if v land 0x1F <> 0 then v land 0x1F else 1)
       }
+    | 0x6000 | 0x7000 ->
+      Some { cart with mode = if v = 0 then ROM else RAM }
     | 0xA000 | 0xB000 ->
       cart.ram_banks |> Option.map (fun ram_banks ->
         Bytes.set ram_banks.(cart.ram_bank) (addr - 0xA000) (Char.chr v);
