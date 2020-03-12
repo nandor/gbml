@@ -113,8 +113,10 @@ let read s addr =
     Cartridge.read cart addr
   | 0xC000 | 0xD000 ->
     Some (Char.code (Bytes.get ram (addr - 0xC000)))
-  | op when 0xE000 <= addr && addr < 0xFF00 ->
+  | op when 0xE000 <= addr && addr < 0xFE00 ->
     Some (Char.code (Bytes.get ram (addr - 0xE000)))
+  | op when 0xFE00 <= addr && addr < 0xFEA0 ->
+    Gpu.oam_read gpu (addr - 0xFE00)
   | op when 0xFF80 <= addr && addr < 0xFFFF ->
     Some (Char.code (Bytes.get high_ram (addr - 0xFF80)))
   | op -> match addr with
@@ -148,8 +150,8 @@ let read s addr =
   | 0xFF26 ->
     Some 0x00
 
-  | 0xFF40 -> Some
-    (
+  | 0xFF40 ->
+    let v =
       (if Gpu.get_lcd_enable gpu              then 0x80 else 0x00) lor
       (if Gpu.get_lcd_window_tile_map gpu     then 0x40 else 0x00) lor
       (if Gpu.get_lcd_window_display gpu      then 0x20 else 0x00) lor
@@ -158,7 +160,25 @@ let read s addr =
       (if Gpu.get_lcd_bg_window_display gpu   then 0x01 else 0x00) lor
       (if Gpu.get_lcd_sprite_size gpu         then 0x04 else 0x00) lor
       (if Gpu.get_lcd_sprite_display gpu      then 0x02 else 0x00)
-    )
+    in
+    Some v
+
+  | 0xFF41 ->
+    let v =
+      0x80 lor
+      (if Gpu.get_lcd_stat_lyc    gpu then 0x40 else 0x00) lor
+      (if Gpu.get_lcd_stat_oam    gpu then 0x20 else 0x00) lor
+      (if Gpu.get_lcd_stat_vblank gpu then 0x10 else 0x00) lor
+      (if Gpu.get_lcd_stat_hblank gpu then 0x08 else 0x00) lor
+      (if Gpu.get_lcd_stat_equ    gpu then 0x04 else 0x00) lor
+      (match Gpu.get_lcd_stat_mode gpu with
+      | HBlank -> 0
+      | VBlank -> 1
+      | OAM    -> 2
+      | LCD    -> 3
+      )
+    in
+    Some v
 
   | 0xFF42 -> Gpu.get_scroll_y gpu
   | 0xFF43 -> Gpu.get_scroll_x gpu
@@ -171,21 +191,17 @@ let read s addr =
   (* Interrupt enable *)
   | 0xFFFF ->
     Some (
-      (if ie.iePins   then 0x10 else 0x00)
-      lor
-      (if ie.ieSerial then 0x08 else 0x00)
-      lor
-      (if ie.ieTimer  then 0x04 else 0x00)
-      lor
-      (if ie.ieStat   then 0x02 else 0x00)
-      lor
+      (if ie.iePins   then 0x10 else 0x00) lor
+      (if ie.ieSerial then 0x08 else 0x00) lor
+      (if ie.ieTimer  then 0x04 else 0x00) lor
+      (if ie.ieStat   then 0x02 else 0x00) lor
       (if ie.ieVBlank then 0x01 else 0x00)
     )
   | op ->
     Printf.eprintf "cannot read from %x\n" addr;
     exit (-1)
 
-let rec write s addr v =
+let write s addr v =
   let { gpu; sound; high_ram; ram; cart; timer; input } = s in
   match addr land 0xF000 with
   | 0x0000 | 0x1000 | 0x2000 | 0x3000
@@ -200,9 +216,11 @@ let rec write s addr v =
   | 0xC000 | 0xD000 ->
     Bytes.set ram (addr - 0xC000) (Char.chr v);
     Some s
-  | op when 0xE000 <= addr && addr < 0xFF00 ->
+  | op when 0xE000 <= addr && addr < 0xFE00 ->
     Bytes.set ram (addr - 0xE000) (Char.chr v);
     Some s
+  | op when 0xFE00 <= addr && addr < 0xFEA0 ->
+    Gpu.vram_write gpu (addr - 0xFE00) v |> Option.map (fun gpu -> { s with gpu })
   | op when 0xFF80 <= addr && addr <= 0xFFFE ->
     Bytes.set high_ram (addr - 0xFF80) (Char.chr v);
     Some s
@@ -304,35 +322,13 @@ let rec write s addr v =
       (v land 0x20 <> 0x00)
       (v land 0x10 <> 0x00)
       (v land 0x08 <> 0x00)
-      (v land 0x04 <> 0x00)
-      (match v land 0x03 with
-      | 0 -> HBlank
-      | 1 -> VBlank
-      | 2 -> OAM
-      | 3 -> LCD
-      | _ -> failwith "unreachable"
-      )
       |> Option.map (fun gpu -> { s with gpu })
 
-  | 0xFF42 ->
-    Gpu.set_scroll_y gpu v |> Option.map (fun gpu -> { s with gpu })
-  | 0xFF43 ->
-    Gpu.set_scroll_x gpu v |> Option.map (fun gpu -> { s with gpu })
-
-  | 0xFF46 ->
-    let rec loop i src dst s =
-      if i = 160 then
-        Some s
-      else
-        match read s src with
-        | None -> None
-        | Some v ->
-          match write s dst v with
-          | None -> None
-          | Some s ->
-            loop (i + 1) (src + 1) (dst + 1) s
-    in loop 0 (v lsl 8) 0xFE00 s
-
+  | 0xFF42 -> Gpu.set_scroll_y gpu v |> Option.map (fun gpu -> { s with gpu })
+  | 0xFF43 -> Gpu.set_scroll_x gpu v |> Option.map (fun gpu -> { s with gpu })
+  | 0xFF44 -> failwith "0xFF44"
+  | 0xFF45 ->
+      Gpu.set_lyc gpu v |> Option.map (fun gpu -> { s with gpu })
   | 0xFF47 -> Gpu.set_bgp gpu v |> Option.map (fun gpu -> { s with gpu })
   | 0xFF48 -> Gpu.set_obp0 gpu v |> Option.map (fun gpu -> { s with gpu })
   | 0xFF49 -> Gpu.set_obp1 gpu v |> Option.map (fun gpu -> { s with gpu })

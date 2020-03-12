@@ -11,12 +11,17 @@ type t
 val create : unit -> t
 
 val vram_read : t -> u16 -> u8 option
-
 val vram_write : t -> u16 -> u8 -> t option
+
+val oam_read : t -> u16 -> u8 option
+val oam_write : t -> u16 -> u8 -> t option
 
 val set_bgp : t -> u8 -> t option
 val set_obp0 : t -> u8 -> t option
 val set_obp1 : t -> u8 -> t option
+
+val set_lyc : t -> u8 -> t option
+val get_lyc : t -> u8 option
 
 val set_scroll_y : t -> u8 -> t option
 val get_scroll_y : t -> u8 option
@@ -55,9 +60,14 @@ val set_stat
   -> bool
   -> bool
   -> bool
-  -> bool
-  -> stat
   -> t option
+
+val get_lcd_stat_lyc : t -> bool
+val get_lcd_stat_oam : t -> bool
+val get_lcd_stat_vblank : t -> bool
+val get_lcd_stat_hblank : t -> bool
+val get_lcd_stat_equ : t -> bool
+val get_lcd_stat_mode : t -> stat
 
 val get_ly : t -> u8 option
 

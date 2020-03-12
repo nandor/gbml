@@ -5,10 +5,10 @@
 open Types
 
 type gpu_state =
-  | HBlank of int
-  | VBlank of int
-  | OAMRead of int
-  | VRAMRead of int
+  | ST_HBlank of int
+  | ST_VBlank of int
+  | ST_OAMRead of int
+  | ST_VRAMRead of int
 
 type stat =
   | HBlank
@@ -35,15 +35,18 @@ type t =
   ; lcd_stat_vblank: bool
   ; lcd_stat_hblank: bool
   ; lcd_stat_equ: bool
-  ; lcd_stat_mode: stat
 
   ; lcd_obj0_palette: Graphics.color array
   ; lcd_obj1_palette: Graphics.color array
 
   ; lcd_ly: int
+  ; lcd_lyc: int
   ; lcd_wx: int
   ; lcd_wy: int
+
   ; vram: bytes
+  ; oam: bytes
+
   ; state: gpu_state
   ; time: float
   }
@@ -123,7 +126,38 @@ let graphics_scanline gpu =
   end;
 
   if gpu.lcd_sprite_display then begin
-    failwith "lcd_sprite_display";
+    for i = 39 downto 0 do
+      let y0 = Char.code (Bytes.get gpu.oam ((i lsl 2) + 0)) in
+      let x0 = Char.code (Bytes.get gpu.oam ((i lsl 2) + 1)) in
+      let p  = Char.code (Bytes.get gpu.oam ((i lsl 2) + 2)) in
+      let f  = Char.code (Bytes.get gpu.oam ((i lsl 2) + 3)) in
+
+      if max 0 (y0 - 16) <= ly && ly <= min (y0 - 8) 144 then begin
+        for x = (min x0 160) - 1 downto max 0 (x0 - 8) do
+          (*
+          xx = ( f & 0x20 ) ? ( 15 - x + x0 ) : ( x - x0 );
+          yy = ( f & 0x40 ) ? ( 7 - ly + y0 ) : ( ly - y0 );
+          vidx = ( ly * 160 + x ) << 2;
+
+          if ( !( f & 0x80 ) || emu.lcd_vram[ vidx ] == get_color( emu.lcd_bg, 0x00 ) )
+          {
+            pix = get_tile_pixel( p, yy & 7, 7 - ( xx & 7 ), 0x8000 );
+
+            if ( pix != 0x00 )
+            {
+              pix = get_color( f & 0x10 ? emu.lcd_obp1 : emu.lcd_obp0, pix );
+
+              emu.lcd_vram[ vidx + 0 ] = pix;
+              emu.lcd_vram[ vidx + 1 ] = pix;
+              emu.lcd_vram[ vidx + 2 ] = pix;
+              emu.lcd_vram[ vidx + 3 ] = 0xFF;
+            }
+          }
+          *)
+          failwith "WTF"
+        done
+      end
+    done
   end
 
 let graphics_vblank gpu =
@@ -162,16 +196,19 @@ let create () =
   ; lcd_stat_vblank = false
   ; lcd_stat_hblank = false
   ; lcd_stat_equ = false
-  ; lcd_stat_mode = HBlank
 
   ; lcd_obj0_palette = Array.init 4 (fun _ -> c00)
   ; lcd_obj1_palette = Array.init 4 (fun _ -> c00)
 
   ; lcd_ly = 0
+  ; lcd_lyc = 0
   ; lcd_wx = 0
   ; lcd_wy = 0
+
   ; vram = Bytes.make 0x2000 (Char.chr 0)
-  ; state = HBlank 0
+  ; oam = Bytes.make 0xA0 (Char.chr 0)
+
+  ; state = ST_HBlank 0
   ; time = Unix.gettimeofday ()
   }
 
@@ -182,6 +219,14 @@ let vram_write gpu addr v =
   let vram = Bytes.copy gpu.vram in
   Bytes.set vram addr (Char.chr v);
   Some { gpu with vram }
+
+let oam_read gpu addr =
+  Some (Char.code (Bytes.get gpu.oam addr))
+
+let oam_write gpu addr v =
+  let oam = Bytes.copy gpu.oam in
+  Bytes.set oam addr (Char.chr v);
+  Some { gpu with oam }
 
 let mask_to_palette v =
   Array.init 4 (fun i ->
@@ -197,15 +242,21 @@ let set_bgp gpu v = Some { gpu with lcd_bg_palette = mask_to_palette v}
 let set_obp0 gpu v = Some { gpu with lcd_obj0_palette = mask_to_palette v}
 let set_obp1 gpu v = Some { gpu with lcd_obj1_palette = mask_to_palette v}
 
+let set_lyc gpu lcd_lyc =
+  Some { gpu with
+    lcd_lyc;
+    lcd_stat_equ = if gpu.lcd_enable then lcd_lyc = gpu.lcd_ly else gpu.lcd_stat_equ;
+  }
+let get_lyc gpu =
+  Some gpu.lcd_lyc
+
 let set_scroll_y gpu scroll_y = Some { gpu with scroll_y }
 let get_scroll_y gpu = Some gpu.scroll_y
-
 let set_scroll_x gpu scroll_x = Some { gpu with scroll_x }
 let get_scroll_x gpu = Some gpu.scroll_x
 
 let set_window_x gpu lcd_wx = Some { gpu with lcd_wx }
 let get_window_x gpu = Some gpu.lcd_wx
-
 let set_window_y gpu lcd_wy = Some { gpu with lcd_wy }
 let get_window_y gpu = Some gpu.lcd_wy
 
@@ -219,6 +270,17 @@ let set_lcdc
   lcd_bg_window_display
   lcd_sprite_size
   lcd_sprite_display =
+  let lcd_ly, lcd_stat_equ, state =
+    if lcd_enable && not gpu.lcd_enable then begin
+      (* LCD turned on *)
+      0, gpu.lcd_lyc = 0, ST_HBlank 0
+    end else if not lcd_enable && gpu.lcd_enable then begin
+      (* LCD turned off *)
+      0, gpu.lcd_stat_equ, gpu.state
+    end else
+      (* No change *)
+      gpu.lcd_ly, gpu.lcd_stat_equ, gpu.state
+  in
   Some { gpu with
     lcd_enable;
     lcd_window_tile_map;
@@ -228,6 +290,9 @@ let set_lcdc
     lcd_bg_window_display;
     lcd_sprite_size;
     lcd_sprite_display;
+    lcd_ly;
+    lcd_stat_equ;
+    state;
   }
 
 let set_stat
@@ -235,16 +300,12 @@ let set_stat
   lcd_stat_lyc
   lcd_stat_oam
   lcd_stat_vblank
-  lcd_stat_hblank
-  lcd_stat_equ
-  lcd_stat_mode =
+  lcd_stat_hblank =
   Some { gpu with
     lcd_stat_lyc;
     lcd_stat_oam;
     lcd_stat_vblank;
     lcd_stat_hblank;
-    lcd_stat_equ;
-    lcd_stat_mode;
   }
 
 let get_lcd_enable gpu = gpu.lcd_enable
@@ -256,45 +317,92 @@ let get_lcd_bg_window_display gpu = gpu.lcd_bg_window_display
 let get_lcd_sprite_size gpu = gpu.lcd_sprite_size
 let get_lcd_sprite_display gpu = gpu.lcd_sprite_display
 
+let get_lcd_stat_lyc gpu = gpu.lcd_stat_lyc
+let get_lcd_stat_oam gpu = gpu.lcd_stat_oam
+let get_lcd_stat_vblank gpu = gpu.lcd_stat_vblank
+let get_lcd_stat_hblank gpu = gpu.lcd_stat_hblank
+let get_lcd_stat_equ gpu = gpu.lcd_stat_equ
+let get_lcd_stat_mode gpu =
+  match gpu.state with
+  | ST_HBlank _ -> HBlank
+  | ST_VBlank _ -> VBlank
+  | ST_OAMRead _ -> OAM
+  | ST_VRAMRead _ -> LCD
+
 
 let get_ly gpu = Some gpu.lcd_ly
 
-let no_i = (false, false)
-
-let tick gpu =
+let update gpu =
   match gpu.state with
-  | HBlank n when n < 51 ->
-    Some (no_i, { gpu with state = HBlank (n + 1) })
-  | HBlank n ->
+  | ST_HBlank n when n < 51 ->
+    Some (
+      (false, false, false, false),
+      { gpu with state = ST_HBlank (n + 1) }
+    )
+  | ST_HBlank n ->
     let lcd_ly = gpu.lcd_ly + 1 in
+    let lcd_stat_equ = lcd_ly = gpu.lcd_lyc in
     if lcd_ly > rows then begin
       (* VBlank here *)
-      let gpu = { gpu with lcd_ly; state = VBlank 0 } in
+      let gpu = { gpu with lcd_ly; state = ST_VBlank 0; lcd_stat_equ } in
       graphics_vblank gpu;
-      Some (no_i, gpu)
+      Some ((false, true, false, lcd_stat_equ), gpu)
     end else begin
       (* Scanline here *)
-      let gpu = { gpu with lcd_ly; state = HBlank 0 } in
+      let gpu = { gpu with lcd_ly; state = ST_HBlank 0; lcd_stat_equ } in
       graphics_scanline gpu;
-      Some (no_i, gpu)
+      Some ((false, false, false, lcd_stat_equ), gpu)
     end
 
-  | VBlank n when n < 114 ->
-    Some (no_i, { gpu with state = VBlank (n + 1) })
-  | VBlank _ ->
-    if gpu.lcd_ly >= rows + 10 then
-      Some (no_i, { gpu with state = OAMRead 0; lcd_ly = 0 })
-    else
-      Some (no_i, { gpu with state = VBlank 0; lcd_ly = gpu.lcd_ly + 1 })
+  | ST_VBlank n when n < 114 ->
+    Some (
+      (false, false, false, false),
+      { gpu with state = ST_VBlank (n + 1) }
+    )
+  | ST_VBlank _ ->
+    let ended = gpu.lcd_ly >= rows + 10 in
+    let lcd_ly = if ended then 0 else gpu.lcd_ly + 1 in
+    let state = if ended then ST_OAMRead 0 else ST_VBlank 0 in
+    let lcd_stat_equ = gpu.lcd_lyc = lcd_ly in
+    Some (
+      (false, false, ended, lcd_stat_equ),
+      { gpu with lcd_ly; state; lcd_stat_equ }
+    )
 
-  | OAMRead n when n < 20 ->
-    Some (no_i, { gpu with state = OAMRead (n + 1) })
-  | OAMRead _ ->
+  | ST_OAMRead n when n < 20 ->
+    Some (
+      (false, false, false, false),
+      { gpu with state = ST_OAMRead (n + 1) }
+    )
+  | ST_OAMRead _ ->
     (* HBlank here *)
-    Some (no_i, { gpu with state = VRAMRead 0 })
+    Some (
+      (true, false, false, false),
+      { gpu with state = ST_VRAMRead 0 }
+    )
 
-  | VRAMRead n when n < 43 ->
-    Some (no_i, { gpu with state = VRAMRead (n + 1) })
-  | VRAMRead _ ->
+  | ST_VRAMRead n when n < 43 ->
+    Some (
+      (false, false, false, false),
+      { gpu with state = ST_VRAMRead (n + 1) }
+    )
+  | ST_VRAMRead _ ->
     (* Frame done here - wait for it to finish. *)
-    Some (no_i, { gpu with state = HBlank 0; time = Unix.gettimeofday () })
+    Some (
+      (false, false, false, false),
+      { gpu with state = ST_HBlank 0; time = Unix.gettimeofday () }
+    )
+
+let tick gpu =
+  if gpu.lcd_enable then
+    update gpu |> Option.map (fun ((hblank, vblank, oam, equ), gpu) ->
+      let int_stat =
+        (gpu.lcd_stat_lyc && equ) ||
+        (gpu.lcd_stat_hblank && hblank) ||
+        (gpu.lcd_stat_vblank && vblank) ||
+        (gpu.lcd_stat_oam && oam)
+      in
+      (int_stat, vblank), gpu
+    )
+  else
+    Some ((false, false), gpu)
