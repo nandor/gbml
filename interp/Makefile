@@ -18,7 +18,13 @@ OCAMLFIND=ocamlfind
 
 PACKAGES=unix,graphics
 
-EXTRACTED=cpu.ml cpu.mli
+EXTRACTED=cpu_v.ml cpu_v.mli
+
+PROOFS=\
+	U4.vo  \
+	U8.vo  \
+	U16.vo \
+	Cpu_v.vo
 
 OBJECTS=\
 	types.cmx 	 \
@@ -28,7 +34,8 @@ OBJECTS=\
 	gpu.cmx      \
 	timer.cmx 	 \
 	system.cmx 	 \
-	cpu.cmx      \
+	cpu_v.cmx    \
+	cpu_ml.cmx   \
 	main.cmx     \
 
 # Toplevel.
@@ -39,18 +46,26 @@ all:
 
 # Coq build.
 all-v:
+	test -f .depend.v || $(MAKE) depend-v
 	$(MAKE) proof
 	$(MAKE) $(EXTRACTED)
 
-proof: $(FILES:.v=.vo)
+depend-v:  $(PROOFS:.vo=.v)
+	$(COQDEP) $^ > .depend.v
 
-$(EXTRACTED): extraction.v
+proof: $(PROOFS)
+
+$(EXTRACTED): $(PROOFS) extraction.v
 	$(COQEXEC) extraction.v
 
 
 # OCaml build.
 all-ml:
+	test -f .depend.ml || $(MAKE) depend-ml
 	$(MAKE) gbml
+
+depend-ml: $(OBJECTS:.cmx=.ml) $(OBJECTS:.cmx=.mli)
+	$(OCAMLDEP) $^ > .depend.ml
 
 gbml: $(OBJECTS)
 	$(OCAMLFIND) $(OCAMLOPT) -o $@ -linkpkg -package $(PACKAGES) $^
@@ -65,19 +80,17 @@ gbml: $(OBJECTS)
 %.cmx: %.ml %.cmi
 	$(OCAMLFIND) $(OCAMLOPT) -c $< -package $(PACKAGES)
 
-cpu.cmx: cpu.ml cpu.cmi
+cpu_v.cmx: cpu_v.ml cpu_v.cmi
 	$(OCAMLFIND) $(OCAMLOPT) -c $< -package $(PACKAGES) -w -8
-
-main.cmx: main.ml
-	$(OCAMLFIND) $(OCAMLOPT) -c $< -package $(PACKAGES)
 
 # Clean.
 .PHONY: clean
 clean:
+	rm -f .depend.v .depend.ml
 	rm -f *.vo *.vok *.vos *.glob .*.aux .merlin
-	rm -rf *.o *.cmi *.cmo *.cmx
-	rm -f cpu.ml cpu.mli
+	rm -f *.o *.cmi *.cmo *.cmx
+	rm -f cpu_v.ml cpu_v.mli
 
 
--include .depend.ml
 -include .depend.v
+-include .depend.ml

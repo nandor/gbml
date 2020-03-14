@@ -10,11 +10,19 @@ let () =
   let sound = Sound.create () in
   let input = Input.create () in
   let sys = System.create cart gpu sound timer input in
-  let cpu = Cpu.create sys in
 
-  (* Main loop *)
-  let rec loop cpu =
-    match Cpu.tick cpu with
-    | None ->  ()
-    | Some cpu' -> loop cpu'
-  in loop cpu
+  match Sys.argv.(2) with
+  | "v" ->
+    let rec loop_v cpu =
+      match Cpu_v.tick cpu with
+      | None ->  ()
+      | Some cpu' -> loop_v cpu'
+    in loop_v (Cpu_v.create sys)
+  | "ml" ->
+    let rec loop_ml cpu =
+      match Cpu_ml.tick cpu with
+      | None ->  ()
+      | Some cpu' -> loop_ml cpu'
+    in loop_ml (Cpu_ml.create sys)
+  | _ ->
+    ()

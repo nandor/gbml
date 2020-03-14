@@ -15,9 +15,13 @@
 *.cmi
 *.o
 
+# Dependencies
+.depend.v
+.depend.ml
+
 # Extracted sources
-cpu.ml
-cpu.mli
+cpu_v.ml
+cpu_v.mli
 
 # Executables
 gbml

@@ -2,12 +2,10 @@
 (* Licensing information is available in the LICENSE file. *)
 (* (C) 2020 Nandor Licker. All rights reserved. *)
 
-type u8 = int
-type i8 = int
-type u16 = int
+type t
 
+val create : System.t -> t
 
-val i8_of_u8 : u8 -> i8
+val tick : t -> t option
 
-
-val crash : unit -> 'a
+val dump : t -> unit

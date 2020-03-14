@@ -12,3 +12,5 @@ let i8_of_u8 n =
     (n land 0xFF) lor (lnot 0xFF)
   else
     n
+
+let crash () = failwith "WTF"
