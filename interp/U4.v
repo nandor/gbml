@@ -6,6 +6,7 @@ Require Import Coq.Bool.Bool.
 Require Import Coq.Init.Nat.
 Require Import Coq.Arith.PeanoNat.
 
+Require Import Omega.
 
 Inductive u4 :=
   | x0
@@ -811,7 +812,313 @@ Definition u4_or (a: u4) (b: u4): u4 :=
 
 Inductive cmp: Type := Lt | Eq | Gt.
 
-Axiom u4_cmp : u4 -> u4 -> cmp.
+Definition u4_cmp (a: u4) (b: u4): cmp :=
+  match a with
+  | x0 =>
+    match b with
+    | x0 => Eq
+    | x1 => Lt
+    | x2 => Lt
+    | x3 => Lt
+    | x4 => Lt
+    | x5 => Lt
+    | x6 => Lt
+    | x7 => Lt
+    | x8 => Lt
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x1 =>
+    match b with
+    | x0 => Gt
+    | x1 => Eq
+    | x2 => Lt
+    | x3 => Lt
+    | x4 => Lt
+    | x5 => Lt
+    | x6 => Lt
+    | x7 => Lt
+    | x8 => Lt
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x2 =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Eq
+    | x3 => Lt
+    | x4 => Lt
+    | x5 => Lt
+    | x6 => Lt
+    | x7 => Lt
+    | x8 => Lt
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x3 =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Eq
+    | x4 => Lt
+    | x5 => Lt
+    | x6 => Lt
+    | x7 => Lt
+    | x8 => Lt
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x4 =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Eq
+    | x5 => Lt
+    | x6 => Lt
+    | x7 => Lt
+    | x8 => Lt
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x5 =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Eq
+    | x6 => Lt
+    | x7 => Lt
+    | x8 => Lt
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x6 =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Eq
+    | x7 => Lt
+    | x8 => Lt
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x7 =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Eq
+    | x8 => Lt
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x8 =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Gt
+    | x8 => Eq
+    | x9 => Lt
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | x9 =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Gt
+    | x8 => Gt
+    | x9 => Eq
+    | xa => Lt
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | xa =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Gt
+    | x8 => Gt
+    | x9 => Gt
+    | xa => Eq
+    | xb => Lt
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | xb =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Gt
+    | x8 => Gt
+    | x9 => Gt
+    | xa => Gt
+    | xb => Eq
+    | xc => Lt
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | xc =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Gt
+    | x8 => Gt
+    | x9 => Gt
+    | xa => Gt
+    | xb => Gt
+    | xc => Eq
+    | xd => Lt
+    | xe => Lt
+    | xf => Lt
+    end
+  | xd =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Gt
+    | x8 => Gt
+    | x9 => Gt
+    | xa => Gt
+    | xb => Gt
+    | xc => Gt
+    | xd => Eq
+    | xe => Lt
+    | xf => Lt
+    end
+  | xe =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Gt
+    | x8 => Gt
+    | x9 => Gt
+    | xa => Gt
+    | xb => Gt
+    | xc => Gt
+    | xd => Gt
+    | xe => Eq
+    | xf => Lt
+    end
+  | xf =>
+    match b with
+    | x0 => Gt
+    | x1 => Gt
+    | x2 => Gt
+    | x3 => Gt
+    | x4 => Gt
+    | x5 => Gt
+    | x6 => Gt
+    | x7 => Gt
+    | x8 => Gt
+    | x9 => Gt
+    | xa => Gt
+    | xb => Gt
+    | xc => Gt
+    | xd => Gt
+    | xe => Gt
+    | xf => Eq
+    end
+  end.
 
 Definition u4_gt (a: u4) (b: u4): bool :=
   match u4_cmp a b with
@@ -923,4 +1230,9 @@ Section Nat.
     intro; assumption.
   Qed.
 
+  Lemma gt_nat x y : u4_gt x y = true -> to_nat x > to_nat y.
+  Proof.
+    intros H.
+    destruct x; destruct y; try (inversion H); try (simpl; omega).
+  Qed.
 End Nat.

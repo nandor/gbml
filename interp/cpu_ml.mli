@@ -4,8 +4,6 @@
 
 type t
 
-val create : System.t -> t
+val create : unit -> t
 
-val tick : t -> t option
-
-val dump : t -> unit
+val tick : t -> System.t -> (t * System.t) option

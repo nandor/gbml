@@ -10,6 +10,8 @@ From GB Require Import U8.
 From GB Require Import U16.
 From GB Require Import Cpu_v.
 
+Extract Inductive unit => "unit" ["()"].
+
 Extract Inductive bool => "bool" [ "true" "false" ].
 
 Extract Inductive option => "option" [ "Some" "None" ].
@@ -29,42 +31,7 @@ Extract Inductive interrupt => "System.interrupt" [
   "System.Int_Pins"
 ].
 
-(* TODO REMOVE *)
-Extract Constant U4.u4_cmp => "(fun a b ->
-  if a = b then Eq else if a < b then Lt else Gt
-)".
-
 (******************************************************************************)
 
-Extract Constant Cpu_v.System => "System.t".
-Extract Constant Cpu_v.sys_tick => "System.tick".
-
-Extract Constant Cpu_v.sys_is_interrupt_pending => "System.is_interrupt_pending".
-Extract Constant Cpu_v.sys_is_interrupt_enabled => "System.is_interrupt_enabled".
-Extract Constant Cpu_v.sys_clear_interrupt => "System.clear_interrupt".
-
-Extract Constant Cpu_v.sys_read =>
-"(fun sys addr ->
-  match addr with
-  | Pair(Pair(lo_lo, lo_hi), Pair(hi_lo, hi_hi)) ->
-    let hi = ((hi_hi lsl 4) lor hi_lo) lsl 8 in
-    let lo = ((lo_hi lsl 4) lor lo_lo) lsl 0 in
-    match System.read sys (hi lor lo) with
-    | None -> None
-    | Some v ->
-      Some (Pair(Pair(v land 0xF, (v lsr 4) land 0xF), sys))
-)".
-
-Extract Constant Cpu_v.sys_write =>
-"(fun sys addr v ->
-  match addr with
-  | Pair(Pair(lo_lo, lo_hi), Pair(hi_lo, hi_hi)) ->
-    match v with
-    | Pair (v_lo, v_hi) ->
-      let hi = ((hi_hi lsl 4) lor hi_lo) lsl 8 in
-      let lo = ((lo_hi lsl 4) lor lo_lo) lsl 0 in
-      System.write sys (hi lor lo) ((v_hi lsl 4) lor v_lo)
-)".
-
-Extraction "cpu_v.ml" Cpu_v.System Cpu_v.create Cpu_v.tick.
+Extraction "cpu_v.ml" Cpu_v.create Cpu_v.tick.
 

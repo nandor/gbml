@@ -23,13 +23,40 @@ Inductive interrupt : Type :=
   | Int_Pins
   .
 
-Axiom System: Type.
-Axiom sys_tick : System -> option System.
-Axiom sys_is_interrupt_pending : System -> interrupt -> bool.
-Axiom sys_is_interrupt_enabled : System -> interrupt -> bool.
-Axiom sys_clear_interrupt : System -> interrupt -> option System.
-Axiom sys_read : System -> u16 -> option (u8 * System).
-Axiom sys_write : System -> u16 -> u8 -> option System.
+Inductive System T : Type :=
+  | S : (T -> interrupt -> bool)
+     -> (T -> interrupt -> bool)
+     -> (T -> interrupt -> option (System T))
+     -> (T -> u16 -> option (u8 * (System T)))
+     -> (T -> u16 -> u8 -> option (System T))
+     -> T
+     -> System T
+  .
+
+Definition sys_is_interrupt_pending {T: Type} (s: System T) (int: interrupt) :=
+  match s with
+  | S _ pending _ _ _ _ t => pending t int
+  end.
+
+Definition sys_is_interrupt_enabled {T: Type} (s: System T) (int: interrupt) :=
+  match s with
+  | S _ _ enabled _ _ _ t => enabled t int
+  end.
+
+Definition sys_clear_interrupt {T: Type} (s: System T) (int: interrupt) :=
+  match s with
+  | S _ _ _ clear _ _ t => clear t int
+  end.
+
+Definition sys_read {T: Type} (s: System T) (addr: u16): option (u8 * (System T)) :=
+  match s with
+  | S _ _ _ _ read _ t => read t addr
+  end.
+
+Definition sys_write {T: Type} (s: System T) (addr: u16) (v: u8): option (System T) :=
+  match s with
+  | S _ _ _ _ _ write t => write t addr v
+  end.
 
 
 (******************************************************************************)
@@ -246,7 +273,6 @@ Record Flags :=
 Record Cpu :=
   { r: Regs
   ; f: Flags
-  ; sys: System
   ; ime: bool
   ; halted: bool
   ; uop: Uop
@@ -395,19 +421,9 @@ Definition reg_with_sp r sp :=
    ; l := r.(l)
    |}.
 
-Definition cpu_with_sys cpu sys :=
-  {| r := cpu.(r)
-   ; f := cpu.(f)
-   ; sys := sys
-   ; ime := cpu.(ime)
-   ; halted := cpu.(halted)
-   ; uop := cpu.(uop)
-   |}.
-
 Definition cpu_with_reg cpu r :=
   {| r := r
    ; f := cpu.(f)
-   ; sys := cpu.(sys)
    ; ime := cpu.(ime)
    ; halted := cpu.(halted)
    ; uop := cpu.(uop)
@@ -416,7 +432,6 @@ Definition cpu_with_reg cpu r :=
 Definition cpu_with_flags cpu f :=
   {| r := cpu.(r)
    ; f := f
-   ; sys := cpu.(sys)
    ; ime := cpu.(ime)
    ; halted := cpu.(halted)
    ; uop := cpu.(uop)
@@ -425,7 +440,6 @@ Definition cpu_with_flags cpu f :=
 Definition cpu_with_reg_flags cpu r f :=
   {| r := r
    ; f := f
-   ; sys := cpu.(sys)
    ; ime := cpu.(ime)
    ; halted := cpu.(halted)
    ; uop := cpu.(uop)
@@ -434,7 +448,6 @@ Definition cpu_with_reg_flags cpu r f :=
 Definition cpu_with_uop cpu uop :=
   {| r := cpu.(r)
    ; f := cpu.(f)
-   ; sys := cpu.(sys)
    ; ime := cpu.(ime)
    ; halted := cpu.(halted)
    ; uop := uop
@@ -443,7 +456,6 @@ Definition cpu_with_uop cpu uop :=
 Definition cpu_with_ime cpu ime :=
   {| r := cpu.(r)
    ; f := cpu.(f)
-   ; sys := cpu.(sys)
    ; ime := ime
    ; halted := cpu.(halted)
    ; uop := cpu.(uop)
@@ -452,7 +464,6 @@ Definition cpu_with_ime cpu ime :=
 Definition cpu_with_halted cpu halted :=
   {| r := cpu.(r)
    ; f := cpu.(f)
-   ; sys := cpu.(sys)
    ; ime := cpu.(ime)
    ; halted := halted
    ; uop := cpu.(uop)
@@ -461,7 +472,6 @@ Definition cpu_with_halted cpu halted :=
 Definition cpu_with_next_pc cpu :=
   {| r := reg_with_pc cpu.(r) (inc_wrap_u16 cpu.(r).(pc))
    ; f := cpu.(f)
-   ; sys := cpu.(sys)
    ; ime := cpu.(ime)
    ; halted := cpu.(halted)
    ; uop := cpu.(uop)
@@ -470,7 +480,6 @@ Definition cpu_with_next_pc cpu :=
 Definition cpu_with_prev_sp cpu :=
   {| r := reg_with_sp cpu.(r) (dec_wrap_u16 cpu.(r).(sp))
    ; f := cpu.(f)
-   ; sys := cpu.(sys)
    ; ime := cpu.(ime)
    ; halted := cpu.(halted)
    ; uop := cpu.(uop)
@@ -479,7 +488,6 @@ Definition cpu_with_prev_sp cpu :=
 Definition cpu_with_next_sp cpu :=
   {| r := reg_with_sp cpu.(r) (inc_wrap_u16 cpu.(r).(sp))
    ; f := cpu.(f)
-   ; sys := cpu.(sys)
    ; ime := cpu.(ime)
    ; halted := cpu.(halted)
    ; uop := cpu.(uop)
@@ -770,22 +778,22 @@ Definition execute_alu8 (op: alu8_op) (f: Flags) (op0: u8) (op1: u8): (u8 * Flag
 
 (******************************************************************************)
 
-Definition mem_reader (cpu: Cpu) (addr: u16) (fn: Cpu -> u8 -> Cpu): option Cpu :=
-  match sys_read cpu.(sys) addr with
+Definition mem_reader {T: Type} (cpu: Cpu) (sys: System T) (addr: u16) (fn: Cpu -> u8 -> Cpu): option (Cpu * System T) :=
+  match sys_read sys addr with
   | None => None
-  | Some (v, sys) => Some (fn (cpu_with_sys cpu sys) v)
+  | Some (v, sys) => Some (fn cpu v, sys)
   end.
 
-Definition mem_writer (cpu: Cpu) (addr: u16) (val: u8) (fn: Cpu -> Cpu): option Cpu :=
-  match sys_write cpu.(sys) addr val with
+Definition mem_writer {T: Type} (cpu: Cpu) (sys: System T) (addr: u16) (val: u8) (fn: Cpu -> Cpu): option (Cpu * System T) :=
+  match sys_write sys addr val with
   | None => None
-  | Some sys => Some (fn (cpu_with_sys cpu sys))
+  | Some sys => Some (fn cpu, sys)
   end.
 
-Definition imm_reader (cpu: Cpu) (fn: Cpu -> u8 -> Cpu): option Cpu :=
-  match sys_read cpu.(sys) cpu.(r).(pc) with
+Definition imm_reader {T: Type} (cpu: Cpu) (sys: System T) (fn: Cpu -> u8 -> Cpu): option (Cpu * System T) :=
+  match sys_read sys cpu.(r).(pc) with
   | None => None
-  | Some (v, sys) => Some (fn (cpu_with_next_pc (cpu_with_sys cpu sys)) v)
+  | Some (v, sys) => Some (fn (cpu_with_next_pc cpu) v, sys)
   end.
 
 
@@ -1159,266 +1167,280 @@ Definition handle_op (cpu: Cpu) (op: u8) : option Cpu :=
   | (xf, xf) => handle_rst        cpu (x8, x3)
   end.
 
-Definition handle_cb_op (cpu: Cpu) (op: u8) : option Cpu :=
-  match op with
-  | (x0, x0) => handle_alu8     cpu A8_Rlc R8_B R8_B
-  | (x1, x0) => handle_alu8     cpu A8_Rlc R8_C R8_C
-  | (x2, x0) => handle_alu8     cpu A8_Rlc R8_D R8_D
-  | (x3, x0) => handle_alu8     cpu A8_Rlc R8_E R8_E
-  | (x4, x0) => handle_alu8     cpu A8_Rlc R8_H R8_H
-  | (x5, x0) => handle_alu8     cpu A8_Rlc R8_L R8_L
-  | (x6, x0) => handle_alu8_hl  cpu A8_Rlc
-  | (x7, x0) => handle_alu8     cpu A8_Rlc R8_A R8_A
-  | (x8, x0) => handle_alu8     cpu A8_Rrc R8_B R8_B
-  | (x9, x0) => handle_alu8     cpu A8_Rrc R8_C R8_C
-  | (xa, x0) => handle_alu8     cpu A8_Rrc R8_D R8_D
-  | (xb, x0) => handle_alu8     cpu A8_Rrc R8_E R8_E
-  | (xc, x0) => handle_alu8     cpu A8_Rrc R8_H R8_H
-  | (xd, x0) => handle_alu8     cpu A8_Rrc R8_L R8_L
-  | (xe, x0) => handle_alu8_hl  cpu A8_Rrc
-  | (xf, x0) => handle_alu8     cpu A8_Rrc R8_A R8_A
-  | (x0, x1) => handle_alu8     cpu A8_Rl R8_B R8_B
-  | (x1, x1) => handle_alu8     cpu A8_Rl R8_C R8_C
-  | (x2, x1) => handle_alu8     cpu A8_Rl R8_D R8_D
-  | (x3, x1) => handle_alu8     cpu A8_Rl R8_E R8_E
-  | (x4, x1) => handle_alu8     cpu A8_Rl R8_H R8_H
-  | (x5, x1) => handle_alu8     cpu A8_Rl R8_L R8_L
-  | (x6, x1) => handle_alu8_hl  cpu A8_Rl
-  | (x7, x1) => handle_alu8     cpu A8_Rl R8_A R8_A
-  | (x8, x1) => handle_alu8     cpu A8_Rr R8_B R8_B
-  | (x9, x1) => handle_alu8     cpu A8_Rr R8_C R8_C
-  | (xa, x1) => handle_alu8     cpu A8_Rr R8_D R8_D
-  | (xb, x1) => handle_alu8     cpu A8_Rr R8_E R8_E
-  | (xc, x1) => handle_alu8     cpu A8_Rr R8_H R8_H
-  | (xd, x1) => handle_alu8     cpu A8_Rr R8_L R8_L
-  | (xe, x1) => handle_alu8_hl  cpu A8_Rr
-  | (xf, x1) => handle_alu8     cpu A8_Rr R8_A R8_A
-  | (x0, x2) => handle_alu8     cpu A8_Sla R8_B R8_B
-  | (x1, x2) => handle_alu8     cpu A8_Sla R8_C R8_C
-  | (x2, x2) => handle_alu8     cpu A8_Sla R8_D R8_D
-  | (x3, x2) => handle_alu8     cpu A8_Sla R8_E R8_E
-  | (x4, x2) => handle_alu8     cpu A8_Sla R8_H R8_H
-  | (x5, x2) => handle_alu8     cpu A8_Sla R8_L R8_L
-  | (x6, x2) => handle_alu8_hl  cpu A8_Sla
-  | (x7, x2) => handle_alu8     cpu A8_Sla R8_A R8_A
-  | (x8, x2) => handle_alu8     cpu A8_Sra R8_B R8_B
-  | (x9, x2) => handle_alu8     cpu A8_Sra R8_C R8_C
-  | (xa, x2) => handle_alu8     cpu A8_Sra R8_D R8_D
-  | (xb, x2) => handle_alu8     cpu A8_Sra R8_E R8_E
-  | (xc, x2) => handle_alu8     cpu A8_Sra R8_H R8_H
-  | (xd, x2) => handle_alu8     cpu A8_Sra R8_L R8_L
-  | (xe, x2) => handle_alu8_hl  cpu A8_Sra
-  | (xf, x2) => handle_alu8     cpu A8_Sra R8_A R8_A
-  | (x0, x3) => handle_alu8     cpu A8_Swap R8_B R8_B
-  | (x1, x3) => handle_alu8     cpu A8_Swap R8_C R8_C
-  | (x2, x3) => handle_alu8     cpu A8_Swap R8_D R8_D
-  | (x3, x3) => handle_alu8     cpu A8_Swap R8_E R8_E
-  | (x4, x3) => handle_alu8     cpu A8_Swap R8_H R8_H
-  | (x5, x3) => handle_alu8     cpu A8_Swap R8_L R8_L
-  | (x6, x3) => handle_alu8_hl  cpu A8_Swap
-  | (x7, x3) => handle_alu8     cpu A8_Swap R8_A R8_A
-  | (x8, x3) => handle_alu8     cpu A8_Srl R8_B R8_B
-  | (x9, x3) => handle_alu8     cpu A8_Srl R8_C R8_C
-  | (xa, x3) => handle_alu8     cpu A8_Srl R8_D R8_D
-  | (xb, x3) => handle_alu8     cpu A8_Srl R8_E R8_E
-  | (xc, x3) => handle_alu8     cpu A8_Srl R8_H R8_H
-  | (xd, x3) => handle_alu8     cpu A8_Srl R8_L R8_L
-  | (xe, x3) => handle_alu8_hl  cpu A8_Srl
-  | (xf, x3) => handle_alu8     cpu A8_Srl R8_A R8_A
-  | (x0, x4) => handle_alu8     cpu (A8_Bit B0) R8_B R8_B
-  | (x1, x4) => handle_alu8     cpu (A8_Bit B0) R8_C R8_C
-  | (x2, x4) => handle_alu8     cpu (A8_Bit B0) R8_D R8_D
-  | (x3, x4) => handle_alu8     cpu (A8_Bit B0) R8_E R8_E
-  | (x4, x4) => handle_alu8     cpu (A8_Bit B0) R8_H R8_H
-  | (x5, x4) => handle_alu8     cpu (A8_Bit B0) R8_L R8_L
-  | (x6, x4) => handle_alu8_bit cpu B0
-  | (x7, x4) => handle_alu8     cpu (A8_Bit B0) R8_A R8_A
-  | (x8, x4) => handle_alu8     cpu (A8_Bit B1) R8_B R8_B
-  | (x9, x4) => handle_alu8     cpu (A8_Bit B1) R8_C R8_C
-  | (xa, x4) => handle_alu8     cpu (A8_Bit B1) R8_D R8_D
-  | (xb, x4) => handle_alu8     cpu (A8_Bit B1) R8_E R8_E
-  | (xc, x4) => handle_alu8     cpu (A8_Bit B1) R8_H R8_H
-  | (xd, x4) => handle_alu8     cpu (A8_Bit B1) R8_L R8_L
-  | (xe, x4) => handle_alu8_bit cpu B1
-  | (xf, x4) => handle_alu8     cpu (A8_Bit B1) R8_A R8_A
-  | (x0, x5) => handle_alu8     cpu (A8_Bit B2) R8_B R8_B
-  | (x1, x5) => handle_alu8     cpu (A8_Bit B2) R8_C R8_C
-  | (x2, x5) => handle_alu8     cpu (A8_Bit B2) R8_D R8_D
-  | (x3, x5) => handle_alu8     cpu (A8_Bit B2) R8_E R8_E
-  | (x4, x5) => handle_alu8     cpu (A8_Bit B2) R8_H R8_H
-  | (x5, x5) => handle_alu8     cpu (A8_Bit B2) R8_L R8_L
-  | (x6, x5) => handle_alu8_bit cpu B2
-  | (x7, x5) => handle_alu8     cpu (A8_Bit B2) R8_A R8_A
-  | (x8, x5) => handle_alu8     cpu (A8_Bit B3) R8_B R8_B
-  | (x9, x5) => handle_alu8     cpu (A8_Bit B3) R8_C R8_C
-  | (xa, x5) => handle_alu8     cpu (A8_Bit B3) R8_D R8_D
-  | (xb, x5) => handle_alu8     cpu (A8_Bit B3) R8_E R8_E
-  | (xc, x5) => handle_alu8     cpu (A8_Bit B3) R8_H R8_H
-  | (xd, x5) => handle_alu8     cpu (A8_Bit B3) R8_L R8_L
-  | (xe, x5) => handle_alu8_bit cpu B3
-  | (xf, x5) => handle_alu8     cpu (A8_Bit B3) R8_A R8_A
-  | (x0, x6) => handle_alu8     cpu (A8_Bit B4) R8_B R8_B
-  | (x1, x6) => handle_alu8     cpu (A8_Bit B4) R8_C R8_C
-  | (x2, x6) => handle_alu8     cpu (A8_Bit B4) R8_D R8_D
-  | (x3, x6) => handle_alu8     cpu (A8_Bit B4) R8_E R8_E
-  | (x4, x6) => handle_alu8     cpu (A8_Bit B4) R8_H R8_H
-  | (x5, x6) => handle_alu8     cpu (A8_Bit B4) R8_L R8_L
-  | (x6, x6) => handle_alu8_bit cpu B4
-  | (x7, x6) => handle_alu8     cpu (A8_Bit B4) R8_A R8_A
-  | (x8, x6) => handle_alu8     cpu (A8_Bit B5) R8_B R8_B
-  | (x9, x6) => handle_alu8     cpu (A8_Bit B5) R8_C R8_C
-  | (xa, x6) => handle_alu8     cpu (A8_Bit B5) R8_D R8_D
-  | (xb, x6) => handle_alu8     cpu (A8_Bit B5) R8_E R8_E
-  | (xc, x6) => handle_alu8     cpu (A8_Bit B5) R8_H R8_H
-  | (xd, x6) => handle_alu8     cpu (A8_Bit B5) R8_L R8_L
-  | (xe, x6) => handle_alu8_bit cpu B5
-  | (xf, x6) => handle_alu8     cpu (A8_Bit B5) R8_A R8_A
-  | (x0, x7) => handle_alu8     cpu (A8_Bit B6) R8_B R8_B
-  | (x1, x7) => handle_alu8     cpu (A8_Bit B6) R8_C R8_C
-  | (x2, x7) => handle_alu8     cpu (A8_Bit B6) R8_D R8_D
-  | (x3, x7) => handle_alu8     cpu (A8_Bit B6) R8_E R8_E
-  | (x4, x7) => handle_alu8     cpu (A8_Bit B6) R8_H R8_H
-  | (x5, x7) => handle_alu8     cpu (A8_Bit B6) R8_L R8_L
-  | (x6, x7) => handle_alu8_bit cpu B6
-  | (x7, x7) => handle_alu8     cpu (A8_Bit B6) R8_A R8_A
-  | (x8, x7) => handle_alu8     cpu (A8_Bit B7) R8_B R8_B
-  | (x9, x7) => handle_alu8     cpu (A8_Bit B7) R8_C R8_C
-  | (xa, x7) => handle_alu8     cpu (A8_Bit B7) R8_D R8_D
-  | (xb, x7) => handle_alu8     cpu (A8_Bit B7) R8_E R8_E
-  | (xc, x7) => handle_alu8     cpu (A8_Bit B7) R8_H R8_H
-  | (xd, x7) => handle_alu8     cpu (A8_Bit B7) R8_L R8_L
-  | (xe, x7) => handle_alu8_bit cpu B7
-  | (xf, x7) => handle_alu8     cpu (A8_Bit B7) R8_A R8_A
-  | (x0, x8) => handle_alu8     cpu (A8_Res B0) R8_B R8_B
-  | (x1, x8) => handle_alu8     cpu (A8_Res B0) R8_C R8_C
-  | (x2, x8) => handle_alu8     cpu (A8_Res B0) R8_D R8_D
-  | (x3, x8) => handle_alu8     cpu (A8_Res B0) R8_E R8_E
-  | (x4, x8) => handle_alu8     cpu (A8_Res B0) R8_H R8_H
-  | (x5, x8) => handle_alu8     cpu (A8_Res B0) R8_L R8_L
-  | (x6, x8) => handle_alu8_hl  cpu (A8_Res B0)
-  | (x7, x8) => handle_alu8     cpu (A8_Res B0) R8_A R8_A
-  | (x8, x8) => handle_alu8     cpu (A8_Res B1) R8_B R8_B
-  | (x9, x8) => handle_alu8     cpu (A8_Res B1) R8_C R8_C
-  | (xa, x8) => handle_alu8     cpu (A8_Res B1) R8_D R8_D
-  | (xb, x8) => handle_alu8     cpu (A8_Res B1) R8_E R8_E
-  | (xc, x8) => handle_alu8     cpu (A8_Res B1) R8_H R8_H
-  | (xd, x8) => handle_alu8     cpu (A8_Res B1) R8_L R8_L
-  | (xe, x8) => handle_alu8_hl  cpu (A8_Res B1)
-  | (xf, x8) => handle_alu8     cpu (A8_Res B1) R8_A R8_A
-  | (x0, x9) => handle_alu8     cpu (A8_Res B2) R8_B R8_B
-  | (x1, x9) => handle_alu8     cpu (A8_Res B2) R8_C R8_C
-  | (x2, x9) => handle_alu8     cpu (A8_Res B2) R8_D R8_D
-  | (x3, x9) => handle_alu8     cpu (A8_Res B2) R8_E R8_E
-  | (x4, x9) => handle_alu8     cpu (A8_Res B2) R8_H R8_H
-  | (x5, x9) => handle_alu8     cpu (A8_Res B2) R8_L R8_L
-  | (x6, x9) => handle_alu8_hl  cpu (A8_Res B2)
-  | (x7, x9) => handle_alu8     cpu (A8_Res B2) R8_A R8_A
-  | (x8, x9) => handle_alu8     cpu (A8_Res B3) R8_B R8_B
-  | (x9, x9) => handle_alu8     cpu (A8_Res B3) R8_C R8_C
-  | (xa, x9) => handle_alu8     cpu (A8_Res B3) R8_D R8_D
-  | (xb, x9) => handle_alu8     cpu (A8_Res B3) R8_E R8_E
-  | (xc, x9) => handle_alu8     cpu (A8_Res B3) R8_H R8_H
-  | (xd, x9) => handle_alu8     cpu (A8_Res B3) R8_L R8_L
-  | (xe, x9) => handle_alu8_hl  cpu (A8_Res B3)
-  | (xf, x9) => handle_alu8     cpu (A8_Res B3) R8_A R8_A
-  | (x0, xa) => handle_alu8     cpu (A8_Res B4) R8_B R8_B
-  | (x1, xa) => handle_alu8     cpu (A8_Res B4) R8_C R8_C
-  | (x2, xa) => handle_alu8     cpu (A8_Res B4) R8_D R8_D
-  | (x3, xa) => handle_alu8     cpu (A8_Res B4) R8_E R8_E
-  | (x4, xa) => handle_alu8     cpu (A8_Res B4) R8_H R8_H
-  | (x5, xa) => handle_alu8     cpu (A8_Res B4) R8_L R8_L
-  | (x6, xa) => handle_alu8_hl  cpu (A8_Res B4)
-  | (x7, xa) => handle_alu8     cpu (A8_Res B4) R8_A R8_A
-  | (x8, xa) => handle_alu8     cpu (A8_Res B5) R8_B R8_B
-  | (x9, xa) => handle_alu8     cpu (A8_Res B5) R8_C R8_C
-  | (xa, xa) => handle_alu8     cpu (A8_Res B5) R8_D R8_D
-  | (xb, xa) => handle_alu8     cpu (A8_Res B5) R8_E R8_E
-  | (xc, xa) => handle_alu8     cpu (A8_Res B5) R8_H R8_H
-  | (xd, xa) => handle_alu8     cpu (A8_Res B5) R8_L R8_L
-  | (xe, xa) => handle_alu8_hl  cpu (A8_Res B5)
-  | (xf, xa) => handle_alu8     cpu (A8_Res B5) R8_A R8_A
-  | (x0, xb) => handle_alu8     cpu (A8_Res B6) R8_B R8_B
-  | (x1, xb) => handle_alu8     cpu (A8_Res B6) R8_C R8_C
-  | (x2, xb) => handle_alu8     cpu (A8_Res B6) R8_D R8_D
-  | (x3, xb) => handle_alu8     cpu (A8_Res B6) R8_E R8_E
-  | (x4, xb) => handle_alu8     cpu (A8_Res B6) R8_H R8_H
-  | (x5, xb) => handle_alu8     cpu (A8_Res B6) R8_L R8_L
-  | (x6, xb) => handle_alu8_hl  cpu (A8_Res B6)
-  | (x7, xb) => handle_alu8     cpu (A8_Res B6) R8_A R8_A
-  | (x8, xb) => handle_alu8     cpu (A8_Res B7) R8_B R8_B
-  | (x9, xb) => handle_alu8     cpu (A8_Res B7) R8_C R8_C
-  | (xa, xb) => handle_alu8     cpu (A8_Res B7) R8_D R8_D
-  | (xb, xb) => handle_alu8     cpu (A8_Res B7) R8_E R8_E
-  | (xc, xb) => handle_alu8     cpu (A8_Res B7) R8_H R8_H
-  | (xd, xb) => handle_alu8     cpu (A8_Res B7) R8_L R8_L
-  | (xe, xb) => handle_alu8_hl  cpu (A8_Res B7)
-  | (xf, xb) => handle_alu8     cpu (A8_Res B7) R8_A R8_A
-  | (x0, xc) => handle_alu8     cpu (A8_Set B0) R8_B R8_B
-  | (x1, xc) => handle_alu8     cpu (A8_Set B0) R8_C R8_C
-  | (x2, xc) => handle_alu8     cpu (A8_Set B0) R8_D R8_D
-  | (x3, xc) => handle_alu8     cpu (A8_Set B0) R8_E R8_E
-  | (x4, xc) => handle_alu8     cpu (A8_Set B0) R8_H R8_H
-  | (x5, xc) => handle_alu8     cpu (A8_Set B0) R8_L R8_L
-  | (x6, xc) => handle_alu8_hl  cpu (A8_Set B0)
-  | (x7, xc) => handle_alu8     cpu (A8_Set B0) R8_A R8_A
-  | (x8, xc) => handle_alu8     cpu (A8_Set B1) R8_B R8_B
-  | (x9, xc) => handle_alu8     cpu (A8_Set B1) R8_C R8_C
-  | (xa, xc) => handle_alu8     cpu (A8_Set B1) R8_D R8_D
-  | (xb, xc) => handle_alu8     cpu (A8_Set B1) R8_E R8_E
-  | (xc, xc) => handle_alu8     cpu (A8_Set B1) R8_H R8_H
-  | (xd, xc) => handle_alu8     cpu (A8_Set B1) R8_L R8_L
-  | (xe, xc) => handle_alu8_hl  cpu (A8_Set B1)
-  | (xf, xc) => handle_alu8     cpu (A8_Set B1) R8_A R8_A
-  | (x0, xd) => handle_alu8     cpu (A8_Set B2) R8_B R8_B
-  | (x1, xd) => handle_alu8     cpu (A8_Set B2) R8_C R8_C
-  | (x2, xd) => handle_alu8     cpu (A8_Set B2) R8_D R8_D
-  | (x3, xd) => handle_alu8     cpu (A8_Set B2) R8_E R8_E
-  | (x4, xd) => handle_alu8     cpu (A8_Set B2) R8_H R8_H
-  | (x5, xd) => handle_alu8     cpu (A8_Set B2) R8_L R8_L
-  | (x6, xd) => handle_alu8_hl  cpu (A8_Set B2)
-  | (x7, xd) => handle_alu8     cpu (A8_Set B2) R8_A R8_A
-  | (x8, xd) => handle_alu8     cpu (A8_Set B3) R8_B R8_B
-  | (x9, xd) => handle_alu8     cpu (A8_Set B3) R8_C R8_C
-  | (xa, xd) => handle_alu8     cpu (A8_Set B3) R8_D R8_D
-  | (xb, xd) => handle_alu8     cpu (A8_Set B3) R8_E R8_E
-  | (xc, xd) => handle_alu8     cpu (A8_Set B3) R8_H R8_H
-  | (xd, xd) => handle_alu8     cpu (A8_Set B3) R8_L R8_L
-  | (xe, xd) => handle_alu8_hl  cpu (A8_Set B3)
-  | (xf, xd) => handle_alu8     cpu (A8_Set B3) R8_A R8_A
-  | (x0, xe) => handle_alu8     cpu (A8_Set B4) R8_B R8_B
-  | (x1, xe) => handle_alu8     cpu (A8_Set B4) R8_C R8_C
-  | (x2, xe) => handle_alu8     cpu (A8_Set B4) R8_D R8_D
-  | (x3, xe) => handle_alu8     cpu (A8_Set B4) R8_E R8_E
-  | (x4, xe) => handle_alu8     cpu (A8_Set B4) R8_H R8_H
-  | (x5, xe) => handle_alu8     cpu (A8_Set B4) R8_L R8_L
-  | (x6, xe) => handle_alu8_hl  cpu (A8_Set B4)
-  | (x7, xe) => handle_alu8     cpu (A8_Set B4) R8_A R8_A
-  | (x8, xe) => handle_alu8     cpu (A8_Set B5) R8_B R8_B
-  | (x9, xe) => handle_alu8     cpu (A8_Set B5) R8_C R8_C
-  | (xa, xe) => handle_alu8     cpu (A8_Set B5) R8_D R8_D
-  | (xb, xe) => handle_alu8     cpu (A8_Set B5) R8_E R8_E
-  | (xc, xe) => handle_alu8     cpu (A8_Set B5) R8_H R8_H
-  | (xd, xe) => handle_alu8     cpu (A8_Set B5) R8_L R8_L
-  | (xe, xe) => handle_alu8_hl  cpu (A8_Set B5)
-  | (xf, xe) => handle_alu8     cpu (A8_Set B5) R8_A R8_A
-  | (x0, xf) => handle_alu8     cpu (A8_Set B6) R8_B R8_B
-  | (x1, xf) => handle_alu8     cpu (A8_Set B6) R8_C R8_C
-  | (x2, xf) => handle_alu8     cpu (A8_Set B6) R8_D R8_D
-  | (x3, xf) => handle_alu8     cpu (A8_Set B6) R8_E R8_E
-  | (x4, xf) => handle_alu8     cpu (A8_Set B6) R8_H R8_H
-  | (x5, xf) => handle_alu8     cpu (A8_Set B6) R8_L R8_L
-  | (x6, xf) => handle_alu8_hl  cpu (A8_Set B6)
-  | (x7, xf) => handle_alu8     cpu (A8_Set B6) R8_A R8_A
-  | (x8, xf) => handle_alu8     cpu (A8_Set B7) R8_B R8_B
-  | (x9, xf) => handle_alu8     cpu (A8_Set B7) R8_C R8_C
-  | (xa, xf) => handle_alu8     cpu (A8_Set B7) R8_D R8_D
-  | (xb, xf) => handle_alu8     cpu (A8_Set B7) R8_E R8_E
-  | (xc, xf) => handle_alu8     cpu (A8_Set B7) R8_H R8_H
-  | (xd, xf) => handle_alu8     cpu (A8_Set B7) R8_L R8_L
-  | (xe, xf) => handle_alu8_hl  cpu (A8_Set B7)
-  | (xf, xf) => handle_alu8     cpu (A8_Set B7) R8_A R8_A
+Definition handle_cb_alu8 (cpu: Cpu) (op: alu8_op) (dst: reg_8) (src: reg_8): Cpu :=
+  let v0 := get_reg_8 cpu.(r) dst in
+  let v1 := get_reg_8 cpu.(r) src in
+  match execute_alu8 op cpu.(f) v0 v1 with
+  | (v, f) =>
+    let r := set_reg_8 cpu.(r) dst v in
+    cpu_with_uop (cpu_with_next_pc (cpu_with_reg_flags cpu r f)) U_FETCH
   end.
 
+Definition handle_cb_alu8_hl (cpu: Cpu) (op: alu8_op): Cpu :=
+  cpu_with_uop (cpu_with_next_pc cpu) (U_ALU8_HL_M2 op).
+
+Definition handle_cb_alu8_bit (cpu: Cpu) (bit: bit_8): Cpu :=
+  cpu_with_uop (cpu_with_next_pc cpu) (U_ALU8_BIT_M2 bit).
+
+Definition handle_cb_op (cpu: Cpu) (op: u8) : Cpu :=
+  match op with
+  | (x0, x0) => handle_cb_alu8     cpu A8_Rlc R8_B R8_B
+  | (x1, x0) => handle_cb_alu8     cpu A8_Rlc R8_C R8_C
+  | (x2, x0) => handle_cb_alu8     cpu A8_Rlc R8_D R8_D
+  | (x3, x0) => handle_cb_alu8     cpu A8_Rlc R8_E R8_E
+  | (x4, x0) => handle_cb_alu8     cpu A8_Rlc R8_H R8_H
+  | (x5, x0) => handle_cb_alu8     cpu A8_Rlc R8_L R8_L
+  | (x6, x0) => handle_cb_alu8_hl  cpu A8_Rlc
+  | (x7, x0) => handle_cb_alu8     cpu A8_Rlc R8_A R8_A
+  | (x8, x0) => handle_cb_alu8     cpu A8_Rrc R8_B R8_B
+  | (x9, x0) => handle_cb_alu8     cpu A8_Rrc R8_C R8_C
+  | (xa, x0) => handle_cb_alu8     cpu A8_Rrc R8_D R8_D
+  | (xb, x0) => handle_cb_alu8     cpu A8_Rrc R8_E R8_E
+  | (xc, x0) => handle_cb_alu8     cpu A8_Rrc R8_H R8_H
+  | (xd, x0) => handle_cb_alu8     cpu A8_Rrc R8_L R8_L
+  | (xe, x0) => handle_cb_alu8_hl  cpu A8_Rrc
+  | (xf, x0) => handle_cb_alu8     cpu A8_Rrc R8_A R8_A
+  | (x0, x1) => handle_cb_alu8     cpu A8_Rl R8_B R8_B
+  | (x1, x1) => handle_cb_alu8     cpu A8_Rl R8_C R8_C
+  | (x2, x1) => handle_cb_alu8     cpu A8_Rl R8_D R8_D
+  | (x3, x1) => handle_cb_alu8     cpu A8_Rl R8_E R8_E
+  | (x4, x1) => handle_cb_alu8     cpu A8_Rl R8_H R8_H
+  | (x5, x1) => handle_cb_alu8     cpu A8_Rl R8_L R8_L
+  | (x6, x1) => handle_cb_alu8_hl  cpu A8_Rl
+  | (x7, x1) => handle_cb_alu8     cpu A8_Rl R8_A R8_A
+  | (x8, x1) => handle_cb_alu8     cpu A8_Rr R8_B R8_B
+  | (x9, x1) => handle_cb_alu8     cpu A8_Rr R8_C R8_C
+  | (xa, x1) => handle_cb_alu8     cpu A8_Rr R8_D R8_D
+  | (xb, x1) => handle_cb_alu8     cpu A8_Rr R8_E R8_E
+  | (xc, x1) => handle_cb_alu8     cpu A8_Rr R8_H R8_H
+  | (xd, x1) => handle_cb_alu8     cpu A8_Rr R8_L R8_L
+  | (xe, x1) => handle_cb_alu8_hl  cpu A8_Rr
+  | (xf, x1) => handle_cb_alu8     cpu A8_Rr R8_A R8_A
+  | (x0, x2) => handle_cb_alu8     cpu A8_Sla R8_B R8_B
+  | (x1, x2) => handle_cb_alu8     cpu A8_Sla R8_C R8_C
+  | (x2, x2) => handle_cb_alu8     cpu A8_Sla R8_D R8_D
+  | (x3, x2) => handle_cb_alu8     cpu A8_Sla R8_E R8_E
+  | (x4, x2) => handle_cb_alu8     cpu A8_Sla R8_H R8_H
+  | (x5, x2) => handle_cb_alu8     cpu A8_Sla R8_L R8_L
+  | (x6, x2) => handle_cb_alu8_hl  cpu A8_Sla
+  | (x7, x2) => handle_cb_alu8     cpu A8_Sla R8_A R8_A
+  | (x8, x2) => handle_cb_alu8     cpu A8_Sra R8_B R8_B
+  | (x9, x2) => handle_cb_alu8     cpu A8_Sra R8_C R8_C
+  | (xa, x2) => handle_cb_alu8     cpu A8_Sra R8_D R8_D
+  | (xb, x2) => handle_cb_alu8     cpu A8_Sra R8_E R8_E
+  | (xc, x2) => handle_cb_alu8     cpu A8_Sra R8_H R8_H
+  | (xd, x2) => handle_cb_alu8     cpu A8_Sra R8_L R8_L
+  | (xe, x2) => handle_cb_alu8_hl  cpu A8_Sra
+  | (xf, x2) => handle_cb_alu8     cpu A8_Sra R8_A R8_A
+  | (x0, x3) => handle_cb_alu8     cpu A8_Swap R8_B R8_B
+  | (x1, x3) => handle_cb_alu8     cpu A8_Swap R8_C R8_C
+  | (x2, x3) => handle_cb_alu8     cpu A8_Swap R8_D R8_D
+  | (x3, x3) => handle_cb_alu8     cpu A8_Swap R8_E R8_E
+  | (x4, x3) => handle_cb_alu8     cpu A8_Swap R8_H R8_H
+  | (x5, x3) => handle_cb_alu8     cpu A8_Swap R8_L R8_L
+  | (x6, x3) => handle_cb_alu8_hl  cpu A8_Swap
+  | (x7, x3) => handle_cb_alu8     cpu A8_Swap R8_A R8_A
+  | (x8, x3) => handle_cb_alu8     cpu A8_Srl R8_B R8_B
+  | (x9, x3) => handle_cb_alu8     cpu A8_Srl R8_C R8_C
+  | (xa, x3) => handle_cb_alu8     cpu A8_Srl R8_D R8_D
+  | (xb, x3) => handle_cb_alu8     cpu A8_Srl R8_E R8_E
+  | (xc, x3) => handle_cb_alu8     cpu A8_Srl R8_H R8_H
+  | (xd, x3) => handle_cb_alu8     cpu A8_Srl R8_L R8_L
+  | (xe, x3) => handle_cb_alu8_hl  cpu A8_Srl
+  | (xf, x3) => handle_cb_alu8     cpu A8_Srl R8_A R8_A
+  | (x0, x4) => handle_cb_alu8     cpu (A8_Bit B0) R8_B R8_B
+  | (x1, x4) => handle_cb_alu8     cpu (A8_Bit B0) R8_C R8_C
+  | (x2, x4) => handle_cb_alu8     cpu (A8_Bit B0) R8_D R8_D
+  | (x3, x4) => handle_cb_alu8     cpu (A8_Bit B0) R8_E R8_E
+  | (x4, x4) => handle_cb_alu8     cpu (A8_Bit B0) R8_H R8_H
+  | (x5, x4) => handle_cb_alu8     cpu (A8_Bit B0) R8_L R8_L
+  | (x6, x4) => handle_cb_alu8_bit cpu B0
+  | (x7, x4) => handle_cb_alu8     cpu (A8_Bit B0) R8_A R8_A
+  | (x8, x4) => handle_cb_alu8     cpu (A8_Bit B1) R8_B R8_B
+  | (x9, x4) => handle_cb_alu8     cpu (A8_Bit B1) R8_C R8_C
+  | (xa, x4) => handle_cb_alu8     cpu (A8_Bit B1) R8_D R8_D
+  | (xb, x4) => handle_cb_alu8     cpu (A8_Bit B1) R8_E R8_E
+  | (xc, x4) => handle_cb_alu8     cpu (A8_Bit B1) R8_H R8_H
+  | (xd, x4) => handle_cb_alu8     cpu (A8_Bit B1) R8_L R8_L
+  | (xe, x4) => handle_cb_alu8_bit cpu B1
+  | (xf, x4) => handle_cb_alu8     cpu (A8_Bit B1) R8_A R8_A
+  | (x0, x5) => handle_cb_alu8     cpu (A8_Bit B2) R8_B R8_B
+  | (x1, x5) => handle_cb_alu8     cpu (A8_Bit B2) R8_C R8_C
+  | (x2, x5) => handle_cb_alu8     cpu (A8_Bit B2) R8_D R8_D
+  | (x3, x5) => handle_cb_alu8     cpu (A8_Bit B2) R8_E R8_E
+  | (x4, x5) => handle_cb_alu8     cpu (A8_Bit B2) R8_H R8_H
+  | (x5, x5) => handle_cb_alu8     cpu (A8_Bit B2) R8_L R8_L
+  | (x6, x5) => handle_cb_alu8_bit cpu B2
+  | (x7, x5) => handle_cb_alu8     cpu (A8_Bit B2) R8_A R8_A
+  | (x8, x5) => handle_cb_alu8     cpu (A8_Bit B3) R8_B R8_B
+  | (x9, x5) => handle_cb_alu8     cpu (A8_Bit B3) R8_C R8_C
+  | (xa, x5) => handle_cb_alu8     cpu (A8_Bit B3) R8_D R8_D
+  | (xb, x5) => handle_cb_alu8     cpu (A8_Bit B3) R8_E R8_E
+  | (xc, x5) => handle_cb_alu8     cpu (A8_Bit B3) R8_H R8_H
+  | (xd, x5) => handle_cb_alu8     cpu (A8_Bit B3) R8_L R8_L
+  | (xe, x5) => handle_cb_alu8_bit cpu B3
+  | (xf, x5) => handle_cb_alu8     cpu (A8_Bit B3) R8_A R8_A
+  | (x0, x6) => handle_cb_alu8     cpu (A8_Bit B4) R8_B R8_B
+  | (x1, x6) => handle_cb_alu8     cpu (A8_Bit B4) R8_C R8_C
+  | (x2, x6) => handle_cb_alu8     cpu (A8_Bit B4) R8_D R8_D
+  | (x3, x6) => handle_cb_alu8     cpu (A8_Bit B4) R8_E R8_E
+  | (x4, x6) => handle_cb_alu8     cpu (A8_Bit B4) R8_H R8_H
+  | (x5, x6) => handle_cb_alu8     cpu (A8_Bit B4) R8_L R8_L
+  | (x6, x6) => handle_cb_alu8_bit cpu B4
+  | (x7, x6) => handle_cb_alu8     cpu (A8_Bit B4) R8_A R8_A
+  | (x8, x6) => handle_cb_alu8     cpu (A8_Bit B5) R8_B R8_B
+  | (x9, x6) => handle_cb_alu8     cpu (A8_Bit B5) R8_C R8_C
+  | (xa, x6) => handle_cb_alu8     cpu (A8_Bit B5) R8_D R8_D
+  | (xb, x6) => handle_cb_alu8     cpu (A8_Bit B5) R8_E R8_E
+  | (xc, x6) => handle_cb_alu8     cpu (A8_Bit B5) R8_H R8_H
+  | (xd, x6) => handle_cb_alu8     cpu (A8_Bit B5) R8_L R8_L
+  | (xe, x6) => handle_cb_alu8_bit cpu B5
+  | (xf, x6) => handle_cb_alu8     cpu (A8_Bit B5) R8_A R8_A
+  | (x0, x7) => handle_cb_alu8     cpu (A8_Bit B6) R8_B R8_B
+  | (x1, x7) => handle_cb_alu8     cpu (A8_Bit B6) R8_C R8_C
+  | (x2, x7) => handle_cb_alu8     cpu (A8_Bit B6) R8_D R8_D
+  | (x3, x7) => handle_cb_alu8     cpu (A8_Bit B6) R8_E R8_E
+  | (x4, x7) => handle_cb_alu8     cpu (A8_Bit B6) R8_H R8_H
+  | (x5, x7) => handle_cb_alu8     cpu (A8_Bit B6) R8_L R8_L
+  | (x6, x7) => handle_cb_alu8_bit cpu B6
+  | (x7, x7) => handle_cb_alu8     cpu (A8_Bit B6) R8_A R8_A
+  | (x8, x7) => handle_cb_alu8     cpu (A8_Bit B7) R8_B R8_B
+  | (x9, x7) => handle_cb_alu8     cpu (A8_Bit B7) R8_C R8_C
+  | (xa, x7) => handle_cb_alu8     cpu (A8_Bit B7) R8_D R8_D
+  | (xb, x7) => handle_cb_alu8     cpu (A8_Bit B7) R8_E R8_E
+  | (xc, x7) => handle_cb_alu8     cpu (A8_Bit B7) R8_H R8_H
+  | (xd, x7) => handle_cb_alu8     cpu (A8_Bit B7) R8_L R8_L
+  | (xe, x7) => handle_cb_alu8_bit cpu B7
+  | (xf, x7) => handle_cb_alu8     cpu (A8_Bit B7) R8_A R8_A
+  | (x0, x8) => handle_cb_alu8     cpu (A8_Res B0) R8_B R8_B
+  | (x1, x8) => handle_cb_alu8     cpu (A8_Res B0) R8_C R8_C
+  | (x2, x8) => handle_cb_alu8     cpu (A8_Res B0) R8_D R8_D
+  | (x3, x8) => handle_cb_alu8     cpu (A8_Res B0) R8_E R8_E
+  | (x4, x8) => handle_cb_alu8     cpu (A8_Res B0) R8_H R8_H
+  | (x5, x8) => handle_cb_alu8     cpu (A8_Res B0) R8_L R8_L
+  | (x6, x8) => handle_cb_alu8_hl  cpu (A8_Res B0)
+  | (x7, x8) => handle_cb_alu8     cpu (A8_Res B0) R8_A R8_A
+  | (x8, x8) => handle_cb_alu8     cpu (A8_Res B1) R8_B R8_B
+  | (x9, x8) => handle_cb_alu8     cpu (A8_Res B1) R8_C R8_C
+  | (xa, x8) => handle_cb_alu8     cpu (A8_Res B1) R8_D R8_D
+  | (xb, x8) => handle_cb_alu8     cpu (A8_Res B1) R8_E R8_E
+  | (xc, x8) => handle_cb_alu8     cpu (A8_Res B1) R8_H R8_H
+  | (xd, x8) => handle_cb_alu8     cpu (A8_Res B1) R8_L R8_L
+  | (xe, x8) => handle_cb_alu8_hl  cpu (A8_Res B1)
+  | (xf, x8) => handle_cb_alu8     cpu (A8_Res B1) R8_A R8_A
+  | (x0, x9) => handle_cb_alu8     cpu (A8_Res B2) R8_B R8_B
+  | (x1, x9) => handle_cb_alu8     cpu (A8_Res B2) R8_C R8_C
+  | (x2, x9) => handle_cb_alu8     cpu (A8_Res B2) R8_D R8_D
+  | (x3, x9) => handle_cb_alu8     cpu (A8_Res B2) R8_E R8_E
+  | (x4, x9) => handle_cb_alu8     cpu (A8_Res B2) R8_H R8_H
+  | (x5, x9) => handle_cb_alu8     cpu (A8_Res B2) R8_L R8_L
+  | (x6, x9) => handle_cb_alu8_hl  cpu (A8_Res B2)
+  | (x7, x9) => handle_cb_alu8     cpu (A8_Res B2) R8_A R8_A
+  | (x8, x9) => handle_cb_alu8     cpu (A8_Res B3) R8_B R8_B
+  | (x9, x9) => handle_cb_alu8     cpu (A8_Res B3) R8_C R8_C
+  | (xa, x9) => handle_cb_alu8     cpu (A8_Res B3) R8_D R8_D
+  | (xb, x9) => handle_cb_alu8     cpu (A8_Res B3) R8_E R8_E
+  | (xc, x9) => handle_cb_alu8     cpu (A8_Res B3) R8_H R8_H
+  | (xd, x9) => handle_cb_alu8     cpu (A8_Res B3) R8_L R8_L
+  | (xe, x9) => handle_cb_alu8_hl  cpu (A8_Res B3)
+  | (xf, x9) => handle_cb_alu8     cpu (A8_Res B3) R8_A R8_A
+  | (x0, xa) => handle_cb_alu8     cpu (A8_Res B4) R8_B R8_B
+  | (x1, xa) => handle_cb_alu8     cpu (A8_Res B4) R8_C R8_C
+  | (x2, xa) => handle_cb_alu8     cpu (A8_Res B4) R8_D R8_D
+  | (x3, xa) => handle_cb_alu8     cpu (A8_Res B4) R8_E R8_E
+  | (x4, xa) => handle_cb_alu8     cpu (A8_Res B4) R8_H R8_H
+  | (x5, xa) => handle_cb_alu8     cpu (A8_Res B4) R8_L R8_L
+  | (x6, xa) => handle_cb_alu8_hl  cpu (A8_Res B4)
+  | (x7, xa) => handle_cb_alu8     cpu (A8_Res B4) R8_A R8_A
+  | (x8, xa) => handle_cb_alu8     cpu (A8_Res B5) R8_B R8_B
+  | (x9, xa) => handle_cb_alu8     cpu (A8_Res B5) R8_C R8_C
+  | (xa, xa) => handle_cb_alu8     cpu (A8_Res B5) R8_D R8_D
+  | (xb, xa) => handle_cb_alu8     cpu (A8_Res B5) R8_E R8_E
+  | (xc, xa) => handle_cb_alu8     cpu (A8_Res B5) R8_H R8_H
+  | (xd, xa) => handle_cb_alu8     cpu (A8_Res B5) R8_L R8_L
+  | (xe, xa) => handle_cb_alu8_hl  cpu (A8_Res B5)
+  | (xf, xa) => handle_cb_alu8     cpu (A8_Res B5) R8_A R8_A
+  | (x0, xb) => handle_cb_alu8     cpu (A8_Res B6) R8_B R8_B
+  | (x1, xb) => handle_cb_alu8     cpu (A8_Res B6) R8_C R8_C
+  | (x2, xb) => handle_cb_alu8     cpu (A8_Res B6) R8_D R8_D
+  | (x3, xb) => handle_cb_alu8     cpu (A8_Res B6) R8_E R8_E
+  | (x4, xb) => handle_cb_alu8     cpu (A8_Res B6) R8_H R8_H
+  | (x5, xb) => handle_cb_alu8     cpu (A8_Res B6) R8_L R8_L
+  | (x6, xb) => handle_cb_alu8_hl  cpu (A8_Res B6)
+  | (x7, xb) => handle_cb_alu8     cpu (A8_Res B6) R8_A R8_A
+  | (x8, xb) => handle_cb_alu8     cpu (A8_Res B7) R8_B R8_B
+  | (x9, xb) => handle_cb_alu8     cpu (A8_Res B7) R8_C R8_C
+  | (xa, xb) => handle_cb_alu8     cpu (A8_Res B7) R8_D R8_D
+  | (xb, xb) => handle_cb_alu8     cpu (A8_Res B7) R8_E R8_E
+  | (xc, xb) => handle_cb_alu8     cpu (A8_Res B7) R8_H R8_H
+  | (xd, xb) => handle_cb_alu8     cpu (A8_Res B7) R8_L R8_L
+  | (xe, xb) => handle_cb_alu8_hl  cpu (A8_Res B7)
+  | (xf, xb) => handle_cb_alu8     cpu (A8_Res B7) R8_A R8_A
+  | (x0, xc) => handle_cb_alu8     cpu (A8_Set B0) R8_B R8_B
+  | (x1, xc) => handle_cb_alu8     cpu (A8_Set B0) R8_C R8_C
+  | (x2, xc) => handle_cb_alu8     cpu (A8_Set B0) R8_D R8_D
+  | (x3, xc) => handle_cb_alu8     cpu (A8_Set B0) R8_E R8_E
+  | (x4, xc) => handle_cb_alu8     cpu (A8_Set B0) R8_H R8_H
+  | (x5, xc) => handle_cb_alu8     cpu (A8_Set B0) R8_L R8_L
+  | (x6, xc) => handle_cb_alu8_hl  cpu (A8_Set B0)
+  | (x7, xc) => handle_cb_alu8     cpu (A8_Set B0) R8_A R8_A
+  | (x8, xc) => handle_cb_alu8     cpu (A8_Set B1) R8_B R8_B
+  | (x9, xc) => handle_cb_alu8     cpu (A8_Set B1) R8_C R8_C
+  | (xa, xc) => handle_cb_alu8     cpu (A8_Set B1) R8_D R8_D
+  | (xb, xc) => handle_cb_alu8     cpu (A8_Set B1) R8_E R8_E
+  | (xc, xc) => handle_cb_alu8     cpu (A8_Set B1) R8_H R8_H
+  | (xd, xc) => handle_cb_alu8     cpu (A8_Set B1) R8_L R8_L
+  | (xe, xc) => handle_cb_alu8_hl  cpu (A8_Set B1)
+  | (xf, xc) => handle_cb_alu8     cpu (A8_Set B1) R8_A R8_A
+  | (x0, xd) => handle_cb_alu8     cpu (A8_Set B2) R8_B R8_B
+  | (x1, xd) => handle_cb_alu8     cpu (A8_Set B2) R8_C R8_C
+  | (x2, xd) => handle_cb_alu8     cpu (A8_Set B2) R8_D R8_D
+  | (x3, xd) => handle_cb_alu8     cpu (A8_Set B2) R8_E R8_E
+  | (x4, xd) => handle_cb_alu8     cpu (A8_Set B2) R8_H R8_H
+  | (x5, xd) => handle_cb_alu8     cpu (A8_Set B2) R8_L R8_L
+  | (x6, xd) => handle_cb_alu8_hl  cpu (A8_Set B2)
+  | (x7, xd) => handle_cb_alu8     cpu (A8_Set B2) R8_A R8_A
+  | (x8, xd) => handle_cb_alu8     cpu (A8_Set B3) R8_B R8_B
+  | (x9, xd) => handle_cb_alu8     cpu (A8_Set B3) R8_C R8_C
+  | (xa, xd) => handle_cb_alu8     cpu (A8_Set B3) R8_D R8_D
+  | (xb, xd) => handle_cb_alu8     cpu (A8_Set B3) R8_E R8_E
+  | (xc, xd) => handle_cb_alu8     cpu (A8_Set B3) R8_H R8_H
+  | (xd, xd) => handle_cb_alu8     cpu (A8_Set B3) R8_L R8_L
+  | (xe, xd) => handle_cb_alu8_hl  cpu (A8_Set B3)
+  | (xf, xd) => handle_cb_alu8     cpu (A8_Set B3) R8_A R8_A
+  | (x0, xe) => handle_cb_alu8     cpu (A8_Set B4) R8_B R8_B
+  | (x1, xe) => handle_cb_alu8     cpu (A8_Set B4) R8_C R8_C
+  | (x2, xe) => handle_cb_alu8     cpu (A8_Set B4) R8_D R8_D
+  | (x3, xe) => handle_cb_alu8     cpu (A8_Set B4) R8_E R8_E
+  | (x4, xe) => handle_cb_alu8     cpu (A8_Set B4) R8_H R8_H
+  | (x5, xe) => handle_cb_alu8     cpu (A8_Set B4) R8_L R8_L
+  | (x6, xe) => handle_cb_alu8_hl  cpu (A8_Set B4)
+  | (x7, xe) => handle_cb_alu8     cpu (A8_Set B4) R8_A R8_A
+  | (x8, xe) => handle_cb_alu8     cpu (A8_Set B5) R8_B R8_B
+  | (x9, xe) => handle_cb_alu8     cpu (A8_Set B5) R8_C R8_C
+  | (xa, xe) => handle_cb_alu8     cpu (A8_Set B5) R8_D R8_D
+  | (xb, xe) => handle_cb_alu8     cpu (A8_Set B5) R8_E R8_E
+  | (xc, xe) => handle_cb_alu8     cpu (A8_Set B5) R8_H R8_H
+  | (xd, xe) => handle_cb_alu8     cpu (A8_Set B5) R8_L R8_L
+  | (xe, xe) => handle_cb_alu8_hl  cpu (A8_Set B5)
+  | (xf, xe) => handle_cb_alu8     cpu (A8_Set B5) R8_A R8_A
+  | (x0, xf) => handle_cb_alu8     cpu (A8_Set B6) R8_B R8_B
+  | (x1, xf) => handle_cb_alu8     cpu (A8_Set B6) R8_C R8_C
+  | (x2, xf) => handle_cb_alu8     cpu (A8_Set B6) R8_D R8_D
+  | (x3, xf) => handle_cb_alu8     cpu (A8_Set B6) R8_E R8_E
+  | (x4, xf) => handle_cb_alu8     cpu (A8_Set B6) R8_H R8_H
+  | (x5, xf) => handle_cb_alu8     cpu (A8_Set B6) R8_L R8_L
+  | (x6, xf) => handle_cb_alu8_hl  cpu (A8_Set B6)
+  | (x7, xf) => handle_cb_alu8     cpu (A8_Set B6) R8_A R8_A
+  | (x8, xf) => handle_cb_alu8     cpu (A8_Set B7) R8_B R8_B
+  | (x9, xf) => handle_cb_alu8     cpu (A8_Set B7) R8_C R8_C
+  | (xa, xf) => handle_cb_alu8     cpu (A8_Set B7) R8_D R8_D
+  | (xb, xf) => handle_cb_alu8     cpu (A8_Set B7) R8_E R8_E
+  | (xc, xf) => handle_cb_alu8     cpu (A8_Set B7) R8_H R8_H
+  | (xd, xf) => handle_cb_alu8     cpu (A8_Set B7) R8_L R8_L
+  | (xe, xf) => handle_cb_alu8_hl  cpu (A8_Set B7)
+  | (xf, xf) => handle_cb_alu8     cpu (A8_Set B7) R8_A R8_A
+  end.
 
 (******************************************************************************)
 
@@ -1430,92 +1452,96 @@ Definition all_interrupts :=
   ; Int_Pins
   ].
 
-Definition cpu_has_pending_interrupts cpu :=
-  existsb (fun int => sys_is_interrupt_pending cpu.(sys) int) all_interrupts.
+Definition has_pending_interrupts {T: Type} (sys: System T) :=
+  existsb (fun int => sys_is_interrupt_pending sys int) all_interrupts.
 
-Definition cpu_is_halted cpu :=
-  cpu.(halted) && negb (cpu_has_pending_interrupts cpu).
+Definition cpu_is_halted {T: Type} (cpu: Cpu) (sys: System T) :=
+  cpu.(halted) && negb (has_pending_interrupts sys).
 
-Definition cpu_interrupted cpu int :=
+Definition cpu_interrupted {T: Type} (cpu: Cpu) (sys: System T) (int: interrupt) :=
   cpu.(ime) &&
-  sys_is_interrupt_pending cpu.(sys) int &&
-  sys_is_interrupt_enabled cpu.(sys) int.
+  sys_is_interrupt_pending sys int &&
+  sys_is_interrupt_enabled sys int.
 
-Definition handle_interrupt (cpu: Cpu) (addr: u8) (int: interrupt) : option Cpu :=
-  match sys_clear_interrupt cpu.(sys) int with
+Definition handle_interrupt {T: Type} (cpu: Cpu) (sys: System T) (addr: u8) (int: interrupt) : option (Cpu * System T) :=
+  match sys_clear_interrupt sys int with
   | None => None
-  | Some sys => Some (cpu_with_uop (cpu_with_ime (cpu_with_sys cpu sys) false) (U_INT_M2 addr))
+  | Some sys => Some (cpu_with_uop (cpu_with_ime cpu false) (U_INT_M2 addr), sys)
   end.
 
 
 (******************************************************************************)
 
-Definition step (cpu: Cpu) : option Cpu :=
+Definition tick {T: Type} (cpu: Cpu) (sys: System T): option (Cpu * System T) :=
   match cpu.(uop) with
   | U_FETCH =>
     (* Check for interrupts and enter the ISR if any are pending. *)
     (* If there are no interrupts and the CPU is halted, spin. *)
     (* Otherwise, fetch an opcode and start decoding the instruction. *)
-    if cpu_interrupted cpu Int_VBlank then
-      handle_interrupt cpu (x0, x4) Int_VBlank
-    else if cpu_interrupted cpu Int_Stat then
-      handle_interrupt cpu (x8, x4) Int_Stat
-    else if cpu_interrupted cpu Int_Timer then
-      handle_interrupt cpu (x0, x5) Int_Timer
-    else if cpu_interrupted cpu Int_Serial then
-      handle_interrupt cpu (x8, x5) Int_Serial
-    else if cpu_interrupted cpu Int_Pins then
-      handle_interrupt cpu (x0, x6) Int_Pins
-    else if cpu_is_halted cpu then
-      Some cpu
+    if cpu_interrupted cpu sys Int_VBlank then
+      handle_interrupt cpu sys (x0, x4) Int_VBlank
+    else if cpu_interrupted cpu sys Int_Stat then
+      handle_interrupt cpu sys (x8, x4) Int_Stat
+    else if cpu_interrupted cpu sys Int_Timer then
+      handle_interrupt cpu sys (x0, x5) Int_Timer
+    else if cpu_interrupted cpu sys Int_Serial then
+      handle_interrupt cpu sys (x8, x5) Int_Serial
+    else if cpu_interrupted cpu sys Int_Pins then
+      handle_interrupt cpu sys (x0, x6) Int_Pins
+    else if cpu_is_halted cpu sys then
+      Some (cpu, sys)
     else
-      match sys_read cpu.(sys) cpu.(r).(pc) with
+      match sys_read sys cpu.(r).(pc) with
       | None => None
-      | Some (op, sys) => handle_op (cpu_with_sys cpu sys) op
+      | Some (op, sys) =>
+        match handle_op cpu op with
+        | None => None
+        | Some cpu => Some (cpu, sys)
+        end
       end
   | U_CB =>
     (* Read the opcode after the prefix and handle it. *)
-    match sys_read cpu.(sys) cpu.(r).(pc) with
+    match sys_read sys cpu.(r).(pc) with
     | None => None
-    | Some (op, sys) => handle_cb_op (cpu_with_sys cpu sys) op
+    | Some (op, sys) => Some (handle_cb_op cpu op, sys)
     end
 
   (* ld r16, d16 *)
   | U_LD_R16_D16_M2 dst =>
-    imm_reader cpu (fun cpu v =>
+    imm_reader cpu sys (fun cpu v =>
       cpu_with_uop (cpu_with_reg cpu (set_reg_16s_lo cpu.(r) dst v)) (U_LD_R16_D16_M3 dst)
     )
   | U_LD_R16_D16_M3 dst =>
-    imm_reader cpu (fun cpu v =>
+    imm_reader cpu sys (fun cpu v =>
       cpu_with_uop (cpu_with_reg cpu (set_reg_16s_hi cpu.(r) dst v)) U_FETCH
     )
 
   (* ld r8, (r16) *)
   | U_MOV_R8_R16_M2_R reg_dst reg_addr =>
     let addr := get_reg_16 cpu.(r) reg_addr in
-    mem_reader cpu addr (fun cpu v =>
+    mem_reader cpu sys addr (fun cpu v =>
       cpu_with_uop (cpu_with_reg cpu (set_reg_8 cpu.(r) reg_dst v)) U_FETCH
     )
   (* ld (r16), r8 *)
   | U_MOV_R8_R16_M2_W dst src =>
     let addr := get_reg_16 cpu.(r) src in
     let v := get_reg_8 cpu.(r) dst in
-    mem_writer cpu addr v (fun cpu => cpu_with_uop cpu U_FETCH)
+    mem_writer cpu sys addr v (fun cpu => cpu_with_uop cpu U_FETCH)
 
   (* jr *)
   | U_JR_M2 cc =>
-    imm_reader cpu (fun cpu off =>
+    imm_reader cpu sys (fun cpu off =>
       cpu_with_uop cpu (if is_taken cc cpu.(f) then U_JR_M3 off else U_FETCH)
     )
   | U_JR_M3 off =>
     let pc := u16_add_wrap cpu.(r).(pc) (u8_sext_u16 off) in
-    Some (cpu_with_uop (cpu_with_reg cpu (reg_with_pc cpu.(r) pc)) U_FETCH)
+    Some (cpu_with_uop (cpu_with_reg cpu (reg_with_pc cpu.(r) pc)) U_FETCH, sys)
 
   (* ld (HL±), r8 *)
   | U_MOV_HL_M2_W op src =>
     let v := get_reg_8 cpu.(r) src in
     let addr := get_reg_hl cpu.(r) in
-    mem_writer cpu addr v (fun cpu =>
+    mem_writer cpu sys addr v (fun cpu =>
       let new_addr :=
         match op with
         | Dir_Nop => addr
@@ -1529,7 +1555,7 @@ Definition step (cpu: Cpu) : option Cpu :=
   (* ld r8, (HL±) *)
   | U_MOV_HL_M2_R op dst =>
     let addr := get_reg_hl cpu.(r) in
-    mem_reader cpu addr (fun cpu v =>
+    mem_reader cpu sys addr (fun cpu v =>
       let new_addr :=
         match op with
         | Dir_Nop => addr
@@ -1543,23 +1569,23 @@ Definition step (cpu: Cpu) : option Cpu :=
 
   (* ld r8, d8 *)
   | U_LD_R8_D8_M2 dst =>
-    imm_reader cpu (fun cpu v =>
+    imm_reader cpu sys (fun cpu v =>
       cpu_with_uop (cpu_with_reg cpu (set_reg_8 cpu.(r) dst v)) U_FETCH
     )
 
   (* ld (c), a *)
   | U_MOV_C_M2_R =>
-    mem_reader cpu (cpu.(r).(c), (xf, xf)) (fun cpu v =>
+    mem_reader cpu sys (cpu.(r).(c), (xf, xf)) (fun cpu v =>
       cpu_with_uop (cpu_with_reg cpu (set_reg_8 cpu.(r) R8_A v)) U_FETCH
     )
   | U_MOV_C_M2_W =>
-    mem_writer cpu (cpu.(r).(c), (xf, xf)) cpu.(r).(a) (fun cpu =>
+    mem_writer cpu sys (cpu.(r).(c), (xf, xf)) cpu.(r).(a) (fun cpu =>
       cpu_with_uop cpu U_FETCH
     )
 
   (* ld (d8), a *)
   | U_MOV_D8_M2 rw =>
-    imm_reader cpu (fun cpu v =>
+    imm_reader cpu sys (fun cpu v =>
       match rw with
       | R => cpu_with_uop cpu (U_MOV_D8_M3_R v)
       | W => cpu_with_uop cpu (U_MOV_D8_M3_W v)
@@ -1567,30 +1593,30 @@ Definition step (cpu: Cpu) : option Cpu :=
     )
 
   | U_MOV_D8_M3_W lo =>
-    mem_writer cpu (lo, (xf, xf)) cpu.(r).(a) (
+    mem_writer cpu sys (lo, (xf, xf)) cpu.(r).(a) (
       fun cpu => cpu_with_uop cpu U_FETCH
     )
 
   | U_MOV_D8_M3_R lo =>
-    mem_reader cpu (lo, (xf, xf)) (fun cpu v =>
+    mem_reader cpu sys (lo, (xf, xf)) (fun cpu v =>
       cpu_with_uop (cpu_with_reg cpu (set_reg_8 cpu.(r) R8_A v)) U_FETCH
     )
 
   (* call/call[cc] *)
   | U_CALL_M2 cc =>
-    imm_reader cpu (fun cpu lo =>
+    imm_reader cpu sys (fun cpu lo =>
       cpu_with_uop cpu (U_CALL_M3 cc lo)
     )
   | U_CALL_M3 cc lo =>
-    imm_reader cpu (fun cpu hi =>
+    imm_reader cpu sys (fun cpu hi =>
       cpu_with_uop cpu (if is_taken cc cpu.(f) then U_CALL_M4 lo hi else U_FETCH)
     )
   | U_CALL_M4 lo hi =>
-    Some (cpu_with_uop (cpu_with_prev_sp cpu) (U_CALL_M5 lo hi))
+    Some (cpu_with_uop (cpu_with_prev_sp cpu) (U_CALL_M5 lo hi), sys)
   | U_CALL_M5 lo hi =>
     match cpu.(r).(pc) with
     | (_, pc_hi) =>
-      mem_writer cpu cpu.(r).(sp) pc_hi (fun cpu =>
+      mem_writer cpu sys cpu.(r).(sp) pc_hi (fun cpu =>
         let sp := dec_wrap_u16 cpu.(r).(sp) in
         let reg := reg_with_pc_hi (reg_with_sp cpu.(r) sp) hi in
         cpu_with_uop (cpu_with_reg cpu reg) (U_CALL_M6 lo)
@@ -1599,26 +1625,26 @@ Definition step (cpu: Cpu) : option Cpu :=
   | U_CALL_M6 lo =>
     match cpu.(r).(pc) with
     | (pc_lo, _) =>
-      mem_writer cpu cpu.(r).(sp) pc_lo (fun cpu =>
+      mem_writer cpu sys cpu.(r).(sp) pc_lo (fun cpu =>
         cpu_with_uop (cpu_with_reg cpu (reg_with_pc_lo cpu.(r) lo)) U_FETCH
       )
     end
 
   (* jp d16 *)
   | U_JP_D16_M2 cc =>
-    imm_reader cpu (fun cpu lo =>
+    imm_reader cpu sys (fun cpu lo =>
       cpu_with_uop cpu (U_JP_D16_M3 cc lo)
     )
   | U_JP_D16_M3 cc lo =>
-    imm_reader cpu (fun cpu hi =>
+    imm_reader cpu sys (fun cpu hi =>
       cpu_with_uop cpu (if is_taken cc cpu.(f) then U_JP_D16_M4 lo hi else U_FETCH)
     )
   | U_JP_D16_M4 lo hi =>
-    Some (cpu_with_uop (cpu_with_reg cpu (reg_with_pc cpu.(r) (lo, hi))) U_FETCH)
+    Some (cpu_with_uop (cpu_with_reg cpu (reg_with_pc cpu.(r) (lo, hi))) U_FETCH, sys)
 
   (* push *)
   | U_PUSH_M2 dd =>
-    Some (cpu_with_uop (cpu_with_prev_sp cpu) (U_PUSH_M3 dd))
+    Some (cpu_with_uop (cpu_with_prev_sp cpu) (U_PUSH_M3 dd), sys)
   | U_PUSH_M3 dd =>
     let hi := match dd with
       | R16P_BC => cpu.(r).(b)
@@ -1627,7 +1653,7 @@ Definition step (cpu: Cpu) : option Cpu :=
       | R16P_AF => cpu.(r).(a)
       end
     in
-    mem_writer cpu cpu.(r).(sp) hi (fun cpu =>
+    mem_writer cpu sys cpu.(r).(sp) hi (fun cpu =>
       cpu_with_uop (cpu_with_prev_sp cpu) (U_PUSH_M4 dd)
     )
   | U_PUSH_M4 dd =>
@@ -1639,13 +1665,13 @@ Definition step (cpu: Cpu) : option Cpu :=
         (x0, u4_of_bits (cpu.(f).(cf), cpu.(f).(hf), cpu.(f).(nf), cpu.(f).(zf)))
       end
     in
-    mem_writer cpu cpu.(r).(sp) lo (fun cpu =>
+    mem_writer cpu sys cpu.(r).(sp) lo (fun cpu =>
       cpu_with_uop cpu U_FETCH
     )
 
   (* pop *)
   | U_POP_M2 dd =>
-    mem_reader cpu cpu.(r).(sp) (fun cpu lo =>
+    mem_reader cpu sys cpu.(r).(sp) (fun cpu lo =>
       let r' :=
         match dd with
         | R16P_BC => set_reg_8 cpu.(r) R8_C lo
@@ -1665,7 +1691,7 @@ Definition step (cpu: Cpu) : option Cpu :=
       cpu_with_uop (cpu_with_next_sp (cpu_with_reg_flags cpu r' f')) (U_POP_M3 dd)
     )
   | U_POP_M3 dd =>
-    mem_reader cpu cpu.(r).(sp) (fun cpu hi =>
+    mem_reader cpu sys cpu.(r).(sp) (fun cpu hi =>
       let r' :=
         match dd with
         | R16P_BC => set_reg_8 cpu.(r) R8_B hi
@@ -1707,12 +1733,13 @@ Definition step (cpu: Cpu) : option Cpu :=
     in
     match vf with
     | (v, f) =>
-      Some (cpu_with_uop (cpu_with_reg_flags cpu (set_reg_16s cpu.(r) dst v) f) U_FETCH)
+      let r := set_reg_16s cpu.(r) dst v in
+      Some (cpu_with_uop (cpu_with_reg_flags cpu r f) U_FETCH, sys)
     end
 
   (* alu8 r8, d8 *)
   | U_ALU8_D8_M2 op dst =>
-    imm_reader cpu (fun cpu v1 =>
+    imm_reader cpu sys (fun cpu v1 =>
       let v0 := get_reg_8 cpu.(r) dst in
       match execute_alu8 op cpu.(f) v0 v1 with
       | (v, f) =>
@@ -1723,7 +1750,7 @@ Definition step (cpu: Cpu) : option Cpu :=
   (* alu8 (HL) *)
   | U_ALU8_HL_R8_M2 op reg =>
     let v0 := get_reg_8 cpu.(r) reg in
-    mem_reader cpu (cpu.(r).(l), cpu.(r).(h)) (fun cpu v1 =>
+    mem_reader cpu sys (cpu.(r).(l), cpu.(r).(h)) (fun cpu v1 =>
       match execute_alu8 op cpu.(f) v0 v1 with
       | (v, f) =>
         cpu_with_uop (cpu_with_reg_flags cpu (set_reg_8 cpu.(r) reg v) f) U_FETCH
@@ -1732,7 +1759,7 @@ Definition step (cpu: Cpu) : option Cpu :=
 
   (* bit (HL), n *)
   | U_ALU8_BIT_M2 n =>
-    mem_reader cpu (cpu.(r).(l), cpu.(r).(h)) (fun cpu v =>
+    mem_reader cpu sys (cpu.(r).(l), cpu.(r).(h)) (fun cpu v =>
       match execute_alu8 (A8_Bit n) cpu.(f) v v with
       | (_, f) =>
         cpu_with_uop (cpu_with_flags cpu f) U_FETCH
@@ -1741,74 +1768,74 @@ Definition step (cpu: Cpu) : option Cpu :=
 
   (* ld (d16), r8 *)
   | U_MOV_D16_R8_M2 src rw =>
-    imm_reader cpu (fun cpu lo =>
+    imm_reader cpu sys (fun cpu lo =>
       cpu_with_uop cpu (U_MOV_D16_R8_M3 src lo rw)
     )
   | U_MOV_D16_R8_M3 src lo rw =>
-    imm_reader cpu (fun cpu hi =>
+    imm_reader cpu sys (fun cpu hi =>
       cpu_with_uop cpu (match rw with
         | R => U_MOV_D16_R8_M4_R src lo hi
         | W => U_MOV_D16_R8_M4_W src lo hi
         end)
     )
   | U_MOV_D16_R8_M4_R reg lo hi =>
-    mem_reader cpu (lo, hi) (fun cpu v =>
+    mem_reader cpu sys (lo, hi) (fun cpu v =>
       cpu_with_uop (cpu_with_reg cpu (set_reg_8 cpu.(r) reg v)) U_FETCH
     )
   | U_MOV_D16_R8_M4_W reg lo hi =>
-    mem_writer cpu (lo, hi) (get_reg_8 cpu.(r) reg) (fun cpu =>
+    mem_writer cpu sys (lo, hi) (get_reg_8 cpu.(r) reg) (fun cpu =>
       cpu_with_uop cpu U_FETCH
     )
 
   | U_ALU8_HL_M2 op =>
-    mem_reader cpu (cpu.(r).(l), cpu.(r).(h)) (fun cpu v =>
+    mem_reader cpu sys (cpu.(r).(l), cpu.(r).(h)) (fun cpu v =>
       match execute_alu8 op cpu.(f) v v with
       | (r, f) => cpu_with_uop (cpu_with_flags cpu f) (U_ALU8_HL_M3 r)
       end
     )
   | U_ALU8_HL_M3 v =>
-    mem_writer cpu (cpu.(r).(l), cpu.(r).(h)) v (fun cpu =>
+    mem_writer cpu sys (cpu.(r).(l), cpu.(r).(h)) v (fun cpu =>
       cpu_with_uop cpu U_FETCH
     )
 
   | U_ST_D16_R16_M2 reg =>
-    imm_reader cpu (fun cpu lo => cpu_with_uop cpu (U_ST_D16_R12_M3 reg lo))
+    imm_reader cpu sys (fun cpu lo => cpu_with_uop cpu (U_ST_D16_R12_M3 reg lo))
   | U_ST_D16_R12_M3 reg lo =>
-    imm_reader cpu (fun cpu hi => cpu_with_uop cpu (U_ST_D16_R12_M4 reg lo hi))
+    imm_reader cpu sys (fun cpu hi => cpu_with_uop cpu (U_ST_D16_R12_M4 reg lo hi))
   | U_ST_D16_R12_M4 reg lo hi =>
     let addr := (lo, hi) in
     let v := u16_lo (get_reg_16s cpu.(r) reg) in
-    mem_writer cpu addr v (fun cpu => cpu_with_uop cpu (U_ST_D16_R12_M5 reg lo hi))
+    mem_writer cpu sys addr v (fun cpu => cpu_with_uop cpu (U_ST_D16_R12_M5 reg lo hi))
 
   | U_ST_D16_R12_M5 reg lo hi =>
     let addr := inc_wrap_u16 (lo, hi) in
     let v := u16_hi (get_reg_16s cpu.(r) reg) in
-    mem_writer cpu addr v (fun cpu => cpu_with_uop cpu U_FETCH)
+    mem_writer cpu sys addr v (fun cpu => cpu_with_uop cpu U_FETCH)
 
   (* rst c8 *)
   | U_RST_M2 h =>
-    Some (cpu_with_uop (cpu_with_prev_sp cpu) (U_RST_M3 h))
+    Some (cpu_with_uop (cpu_with_prev_sp cpu) (U_RST_M3 h), sys)
   | U_RST_M3 h =>
-    mem_writer cpu cpu.(r).(sp) (u16_hi cpu.(r).(pc)) (fun cpu =>
+    mem_writer cpu sys cpu.(r).(sp) (u16_hi cpu.(r).(pc)) (fun cpu =>
       let sp := dec_wrap_u16 cpu.(r).(sp) in
       let r := reg_with_sp (reg_with_pc_hi cpu.(r) (x0, x0)) sp in
       cpu_with_uop (cpu_with_reg cpu r) (U_RST_M4 h)
     )
   | U_RST_M4 h =>
-    mem_writer cpu cpu.(r).(sp) (u16_lo cpu.(r).(pc)) (fun cpu =>
+    mem_writer cpu sys cpu.(r).(sp) (u16_lo cpu.(r).(pc)) (fun cpu =>
       let r := reg_with_pc_lo cpu.(r) h in
       cpu_with_uop (cpu_with_reg cpu r) U_FETCH
     )
 
   (* ld (hl), d8 *)
   | U_ST_R16_D8_M2 reg =>
-    imm_reader cpu (fun cpu v => cpu_with_uop cpu (U_ST_R16_D8_M3 reg v))
+    imm_reader cpu sys (fun cpu v => cpu_with_uop cpu (U_ST_R16_D8_M3 reg v))
   | U_ST_R16_D8_M3 reg v =>
-    mem_writer cpu (get_reg_16 cpu.(r) reg) v (fun cpu => cpu_with_uop cpu U_FETCH)
+    mem_writer cpu sys (get_reg_16 cpu.(r) reg) v (fun cpu => cpu_with_uop cpu U_FETCH)
 
   (* ld r16, sp+i8 *)
   | U_ADD_SP_D8_M2 reg =>
-    imm_reader cpu (fun cpu v => cpu_with_uop cpu (U_ADD_SP_D8_M3 reg v))
+    imm_reader cpu sys (fun cpu v => cpu_with_uop cpu (U_ADD_SP_D8_M3 reg v))
   | U_ADD_SP_D8_M3 reg v =>
     match cpu.(r).(sp) with
     | ((sll, slh), sh) =>
@@ -1829,7 +1856,7 @@ Definition step (cpu: Cpu) : option Cpu :=
                 | R16S_SP => U_ADD_SP_D8_M4
                 end
               in
-              Some (cpu_with_uop (cpu_with_reg_flags cpu r f) uop)
+              Some (cpu_with_uop (cpu_with_reg_flags cpu r f) uop, sys)
             end
           end
         end
@@ -1837,17 +1864,16 @@ Definition step (cpu: Cpu) : option Cpu :=
     end
 
   | U_ADD_SP_D8_M4 =>
-    Some (cpu_with_uop cpu U_FETCH)
-
+    Some (cpu_with_uop cpu U_FETCH, sys)
 
   | U_INT_M2 addr =>
-    Some (cpu_with_uop (cpu_with_prev_sp cpu) (U_INT_M3 addr))
+    Some (cpu_with_uop (cpu_with_prev_sp cpu) (U_INT_M3 addr), sys)
   | U_INT_M3 addr =>
-    Some (cpu_with_uop cpu (U_INT_M4 addr))
+    Some (cpu_with_uop cpu (U_INT_M4 addr), sys)
   | U_INT_M4 addr =>
     match cpu.(r).(pc) with
     | (_, hi) =>
-      mem_writer cpu cpu.(r).(sp) hi (fun cpu =>
+      mem_writer cpu sys cpu.(r).(sp) hi (fun cpu =>
         let sp := dec_wrap_u16 cpu.(r).(sp) in
         let r := reg_with_sp (reg_with_pc_hi cpu.(r) (x0, x0)) sp in
         cpu_with_uop (cpu_with_reg cpu r) (U_INT_M5 addr)
@@ -1856,7 +1882,7 @@ Definition step (cpu: Cpu) : option Cpu :=
   | U_INT_M5 addr =>
     match cpu.(r).(pc) with
     | (lo, _) =>
-      mem_writer cpu cpu.(r).(sp) lo (fun cpu =>
+      mem_writer cpu sys cpu.(r).(sp) lo (fun cpu =>
         cpu_with_uop (cpu_with_reg cpu (reg_with_pc_lo cpu.(r) addr)) U_FETCH
       )
     end
@@ -1870,28 +1896,28 @@ Definition step (cpu: Cpu) : option Cpu :=
       | RCC_NC => negb cpu.(f).(cf)
       end
     in
-    Some (cpu_with_uop cpu (if taken then U_RET_M3 false else U_FETCH))
+    Some (cpu_with_uop cpu (if taken then U_RET_M3 false else U_FETCH), sys)
   | U_RET_M3 ie =>
-    mem_reader cpu cpu.(r).(sp) (fun cpu lo =>
+    mem_reader cpu sys cpu.(r).(sp) (fun cpu lo =>
       {| r := reg_with_sp cpu.(r) (inc_wrap_u16 cpu.(r).(sp))
        ; f := cpu.(f)
-       ; sys := cpu.(sys)
        ; ime := if ie then true else cpu.(ime)
        ; halted := cpu.(halted)
        ; uop := U_RET_M4 lo
        |}
     )
   | U_RET_M4 lo =>
-    mem_reader cpu cpu.(r).(sp) (fun cpu hi =>
+    mem_reader cpu sys cpu.(r).(sp) (fun cpu hi =>
       cpu_with_uop (cpu_with_next_sp cpu) (U_RET_M5 lo hi)
     )
   | U_RET_M5 lo hi =>
-    Some (cpu_with_uop (cpu_with_reg cpu (reg_with_pc cpu.(r) (lo, hi))) U_FETCH)
+    let r := reg_with_pc cpu.(r) (lo, hi) in
+    Some (cpu_with_uop (cpu_with_reg cpu r) U_FETCH, sys)
   end.
 
 (******************************************************************************)
 
-Definition create (sys: System) :=
+Definition create (_: unit) :=
   {| r :=
     {| pc := ((x0, x0), (x0, x0))
      ; sp := ((x0, x0), (x0, x0))
@@ -1909,16 +1935,7 @@ Definition create (sys: System) :=
      ; hf := false
      ; cf := false
      |}
-   ; sys := sys
    ; ime := false
    ; halted := false
    ; uop := U_FETCH
    |}.
-
-(******************************************************************************)
-
-Definition tick (cpu: Cpu) :=
-  match sys_tick cpu.(sys) with
-  | None => None
-  | Some sys => step (cpu_with_sys cpu sys)
-  end.
