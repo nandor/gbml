@@ -1939,3 +1939,41 @@ Definition create (_: unit) :=
    ; halted := false
    ; uop := U_FETCH
    |}.
+
+(******************************************************************************)
+
+Fixpoint Reads {T: Type} (sys sys': System T) : Prop :=
+  match sys with
+  | S _ _ _ clear read _ s =>
+    (exists int,
+      match clear s int with
+      | None => False
+      | Some s' => Reads s' sys'
+      end)
+    \/
+    (exists addr,
+      match read s addr with
+      | None => False
+      | Some (v, s') => s' = sys'
+      end)
+  end.
+
+Fixpoint Writes {T: Type} (sys sys': System T) : Prop :=
+  match sys with
+  | S _ _ _ clear _ write s =>
+    (exists int,
+      match clear s int with
+      | None => False
+      | Some s' => Reads s' sys'
+      end)
+    \/
+    (exists addr v,
+      match write s addr v with
+      | None => False
+      | Some s' => s' = sys'
+      end)
+  end.
+
+Theorem one_mem_per_cycle {T: Type} (c c': Cpu) (s s': System T):
+  tick c s = Some (c', s') -> s = s' \/ Reads s s' \/ Writes s s'.
+Admitted.
