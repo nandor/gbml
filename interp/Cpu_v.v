@@ -1942,38 +1942,185 @@ Definition create (_: unit) :=
 
 (******************************************************************************)
 
-Fixpoint Reads {T: Type} (sys sys': System T) : Prop :=
-  match sys with
-  | S _ _ _ clear read _ s =>
-    (exists int,
-      match clear s int with
-      | None => False
-      | Some s' => Reads s' sys'
-      end)
-    \/
-    (exists addr,
-      match read s addr with
-      | None => False
-      | Some (v, s') => s' = sys'
-      end)
-  end.
+Definition Clears {T: Type} (s s': System T) : Prop :=
+  exists int, sys_clear_interrupt s int = Some s'.
 
-Fixpoint Writes {T: Type} (sys sys': System T) : Prop :=
-  match sys with
-  | S _ _ _ clear _ write s =>
-    (exists int,
-      match clear s int with
-      | None => False
-      | Some s' => Reads s' sys'
-      end)
-    \/
-    (exists addr v,
-      match write s addr v with
-      | None => False
-      | Some s' => s' = sys'
-      end)
-  end.
+Definition Reads {T: Type} (s s': System T) : Prop :=
+  exists addr v, sys_read s addr = Some (v, s').
+
+Definition Writes {T: Type} (s s': System T) : Prop :=
+  exists addr v, sys_write s addr v = Some s'.
+
+Lemma handle_clears {T: Type} (s s': System T) (c c': Cpu) (addr: u8) (i: interrupt):
+  handle_interrupt c s addr i = Some (c', s') -> Clears s s'.
+Proof.
+  intros H.
+  unfold handle_interrupt in H.
+  destruct (sys_clear_interrupt s i) eqn:Eclear.
+  - inversion H.
+    unfold Clears.
+    exists i.
+    rewrite <- H2.
+    apply Eclear.
+  - inversion H.
+Qed.
+
+Lemma imm_reader_reads {T: Type} (c c': Cpu) (s s': System T) fn:
+  imm_reader c s fn = Some (c', s') -> Reads s s'.
+Proof.
+  intros H.
+  unfold imm_reader in H.
+  exists (pc (r c)).
+  destruct (sys_read s (pc (r c))) eqn:E.
+  - destruct p.
+    exists u.
+    inversion H.
+    reflexivity.
+  - inversion H.
+Qed.
+
+Lemma mem_reader_reads {T: Type} (c c': Cpu) (s s': System T) addr fn:
+  mem_reader c s addr fn = Some (c', s') -> Reads s s'.
+Proof.
+  intros H.
+  exists addr.
+  unfold mem_reader in H.
+  destruct (sys_read s addr).
+  - destruct p.
+    exists u.
+    inversion H.
+    reflexivity.
+  - inversion H.
+Qed.
+
+Lemma mem_writer_writes {T: Type} (c c': Cpu) (s s': System T) addr v fn:
+  mem_writer c s addr v fn = Some (c', s') -> Writes s s'.
+Proof.
+  intros H.
+  exists addr.
+  exists v.
+  unfold mem_writer in H.
+  destruct (sys_write s addr v).
+  - inversion H. reflexivity.
+  - inversion H.
+Qed.
 
 Theorem one_mem_per_cycle {T: Type} (c c': Cpu) (s s': System T):
-  tick c s = Some (c', s') -> s = s' \/ Reads s s' \/ Writes s s'.
-Admitted.
+  tick c s = Some (c', s') -> s = s' \/ Clears s s' \/ Reads s s' \/ Writes s s'.
+Proof.
+  intros H.
+  destruct c eqn:Hc.
+  destruct s eqn:Hs.
+  destruct uop0; 
+    unfold tick in H; 
+    simpl in H;
+    try (apply imm_reader_reads in H; right; right; left; apply H);
+    try (apply mem_reader_reads in H; right; right; left; apply H);
+    try (apply mem_writer_writes in H; right; right; right; apply H);
+    try (left; inversion H; rewrite H2; reflexivity);
+    try (
+      destruct (pc r0);
+      apply mem_writer_writes in H;
+      right; right; right; apply H).
+  {
+    simpl in H.
+    rewrite <- Hc in H.
+    rewrite <- Hs in H.
+    rewrite <- Hs.
+    destruct (cpu_interrupted c s Int_VBlank).
+    {
+      right. left. apply handle_clears in H. apply H.
+    }
+    {
+      destruct (cpu_interrupted c s Int_Stat).
+      {
+        right. left. apply handle_clears in H. apply H.
+      }
+      {
+        destruct (cpu_interrupted c s Int_Timer).
+        {
+          right. left. apply handle_clears in H. apply H.
+        }
+        {
+          destruct (cpu_interrupted c s Int_Serial).
+          {
+            right. left. apply handle_clears in H. apply H.
+          }
+          {
+            destruct (cpu_interrupted c s Int_Pins).
+            {
+              right. left. apply handle_clears in H. apply H.
+            }
+            {
+              destruct (cpu_is_halted c s) eqn:Ehalted.
+              {
+                left. inversion H. rewrite <- H2. reflexivity.
+              }
+              {
+                right. right. left.
+                destruct (o0 t (pc r0)) eqn:Eread.
+                - exists (pc r0).
+                  destruct p.
+                  exists u.
+                  rewrite Hs.
+                  simpl.
+                  rewrite Eread.
+                  destruct (handle_op c u).
+                  + inversion H.
+                    reflexivity.
+                  + inversion H.
+                - inversion H.
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  {
+    right. right. left.
+    simpl in H.
+    exists (pc r0).
+    destruct (o0 t (pc r0)) eqn:Eread.
+    + destruct p.
+      exists u.
+      unfold sys_read.
+      rewrite Eread.
+      inversion H.
+      reflexivity.
+    + inversion H.
+  }
+  {
+    destruct (match op with
+       | A16_Inc => (inc_wrap_u16 (get_reg_16s r0 src), f0)
+       | A16_Dec => (dec_wrap_u16 (get_reg_16s r0 src), f0)
+       | A16_Add =>
+           let (l0, u) := get_reg_16s r0 dst in
+           let (lh0, hh0) := u in
+           let (l1, u0) := get_reg_16s r0 src in
+           let (lh1, hh1) := u0 in
+           let (lr, cl) := u8_add l0 l1 in
+           let (lhr, h) := u4_adc lh0 lh1 cl in
+           let (hhr, c) := u4_adc hh0 hh1 h in (lr, (lhr, hhr), {| zf := zf f0; nf := false; hf := h; cf := c |})
+       | A16_Mov => (get_reg_16s r0 src, f0)
+       end).
+    inversion H.
+    left.
+    reflexivity.
+  }
+  {
+    left.
+    destruct (sp r0).
+    destruct u.
+    destruct (u8_sext_u16 off).
+    destruct u2.
+    destruct (u4_add u u2).
+    destruct (u4_adc u1 u3 b2).
+    destruct (u8_adc u0 p b3).
+    inversion H.
+    reflexivity.
+  }
+Qed.
+
+
+
