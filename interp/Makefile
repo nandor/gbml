@@ -90,6 +90,7 @@ clean:
 	rm -f *.vo *.vok *.vos *.glob .*.aux .merlin
 	rm -f *.o *.cmi *.cmo *.cmx
 	rm -f cpu_v.ml cpu_v.mli
+	rm -f gbml
 
 
 -include .depend.v

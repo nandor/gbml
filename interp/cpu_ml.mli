@@ -6,4 +6,6 @@ type t
 
 val create : unit -> t
 
+val dump : t -> unit
+
 val tick : t -> System.t -> (t * System.t) option

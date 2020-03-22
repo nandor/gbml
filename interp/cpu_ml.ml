@@ -8,7 +8,6 @@ type r =
   { pc: u16
   ; sp: u16
   ; a: u8
-  ; f: u8
   ; b: u8
   ; c: u8
   ; d: u8
@@ -1027,7 +1026,6 @@ let create () =
     { pc = 0x0000
     ; sp = 0x0000
     ; a = 0x00
-    ; f = 0x00
     ; b = 0x00
     ; c = 0x00
     ; d = 0x00
@@ -1045,6 +1043,18 @@ let create () =
   ; halted = false
   ; uop = U_FETCH
   }
+
+let dump cpu =
+  Printf.eprintf "%04x %04x %02x %02x %02x %02x %02x %02x %02x %d %d %d %d\n"
+    cpu.r.pc cpu.r.sp
+    cpu.r.b cpu.r.c
+    cpu.r.d cpu.r.e
+    cpu.r.h cpu.r.l
+    cpu.r.a
+    (if cpu.f.z then 1 else 0)
+    (if cpu.f.n then 1 else 0)
+    (if cpu.f.h then 1 else 0)
+    (if cpu.f.c then 1 else 0)
 
 let interrupt cpu sys addr i =
   System.clear_interrupt sys i |> Option.map (fun sys ->
