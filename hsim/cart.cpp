@@ -21,7 +21,7 @@ static cart_mbc1_t *load_mbc1(
   cart->ram = nullptr;
   cart->rom = data;
   cart->mode = false;
-  cart->rom_bank = 0;
+  cart->rom_bank = 1;
   cart->ram_bank = 0;
   return cart;
 }
@@ -91,20 +91,42 @@ bool cart_read(cart_t *cart, const char *path)
 
 void cart_write(cart_t *cart, uint16_t addr, uint8_t val)
 {
-  fprintf(stderr, "WTF0\n");
+  switch (cart->type) {
+    case MBC1: {
+      cart_mbc1_t *c = cart->mbc1;
+      switch (addr & 0xF000) {
+        case 0x0000: case 0x1000:
+          assert(!"not implemented");
+        case 0x2000: case 0x3000: {
+          c->rom_bank = (c->rom_bank & 0xE0) | (val & 0x1F ? val & 0x1F : 1);
+          break;
+        }
+        case 0x6000: case 0x7000:
+          assert(!"not implemented");
+        case 0xA000: case 0xB000:
+          assert(!"not implemented");
+        default: {
+          assert(!"invalid address");
+        }
+      }
+      break;
+    }
+    case MBC2: {
+      assert(!"not implemented");
+    }
+  }
 }
 
 uint8_t cart_read(cart_t *cart, uint16_t addr)
 {
   switch (cart->type) {
     case MBC1: {
+      cart_mbc1_t *c = cart->mbc1;
       switch (addr & 0xF000) {
-        case 0x0000: case 0x1000: case 0x2000: case 0x3000: {
-          return cart->mbc1->rom[addr];
-        }
-        case 0x4000: case 0x5000: case 0x6000: case 0x7000: {
-          abort();
-        }
+        case 0x0000: case 0x1000: case 0x2000: case 0x3000:
+          return c->rom[addr];
+        case 0x4000: case 0x5000: case 0x6000: case 0x7000:
+          return c->rom[addr - 0x4000 + c->rom_bank * 0x4000];
         default: {
           assert(!"invalid address");
         }

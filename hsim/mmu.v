@@ -3,19 +3,38 @@
 // (C) 2020 Nandor Licker. All rights reserved.
 
 module MMU
-  ( input      [15:0] addr
-  , input       [7:0] data_in
-  , output reg  [7:0] data_out
-  , input             rd_enable
-  , input             wr_enable
-  , input[7:0]        int_pending
-  , inout[7:0]        int_enable
+  ( input      [15:0]  addr
+  , input       [7:0]  data_in
+  , output reg  [7:0]  data_out
+  , input              rd_enable
+  , input              wr_enable
+
+  , input       [7:0]  int_pending
+  , output reg  [7:0]  int_enable
+  , output reg  [7:0]  int_clear
+  , output reg  [7:0]  int_request
+
+  , output reg         timer_enable
+  , output reg  [1:0]  timer_freq
+  , input       [7:0]  timer_div
+  , output reg  [7:0]  timer_new_div
+  , input       [7:0]  timer_counter
+  , output reg  [7:0]  timer_new_counter
+  , output reg         timer_set_counter
+  , output reg  [7:0]  timer_mod
   );
 
   reg boot_rom_disabled;
   reg [7:0] high_ram[128:0];
+  reg [7:0] ram[8192:0];
 
-  always @* begin
+  always @(negedge rd_enable or negedge wr_enable) begin
+    int_clear <= 8'h00;
+    int_request <= 8'h00;
+    timer_set_counter <= 0;
+  end
+
+  always @(posedge rd_enable or posedge wr_enable) begin
     casez (addr)
       // RAM or Boot ROM.
       16'b00000000????????: begin
@@ -308,13 +327,45 @@ module MMU
         if (wr_enable) $cart_write(addr, data_in);
       end
 
-      // Boot ROM disable.
-      16'hff50: begin
+      16'b110?????????????: begin
+        if (rd_enable) data_out <= ram[addr - 16'hc000];
+        if (wr_enable) ram[addr - 16'hc000] <= data_in;
+      end
+
+      16'hff01: begin
+        // TODO: SB Serial Data Transfer
+        $write("%c", data_in);
+      end
+
+      16'hff02: begin
+        // TODO: SC Serial IO Control
+      end
+
+      16'hff04: begin
+        if (rd_enable) data_out <= timer_div;
+        if (wr_enable) timer_new_div <= 8'h00;
+      end
+      16'hff05: begin
+        if (rd_enable) data_out <= timer_counter;
         if (wr_enable) begin
-          boot_rom_disabled <= 1;
+          timer_new_counter <= data_in;
+          timer_set_counter <= 1;
         end
-        if (rd_enable) begin
-          $display("read from FF50"); $finish;
+      end
+      16'hff06: begin
+        if (rd_enable) data_out <= timer_mod;
+        if (wr_enable) timer_mod <= data_in;
+      end
+      16'hff07: begin
+        if (rd_enable) data_out <= { 5'bxxxx, timer_enable, timer_freq };
+        if (wr_enable) { timer_enable, timer_freq } <= data_in[2:0];
+      end
+
+      16'hff0f: begin
+        if (rd_enable) data_out <= int_pending;
+        if (wr_enable) begin
+          int_clear <= ~data_in;
+          int_request <= data_in;
         end
       end
 
@@ -372,6 +423,11 @@ module MMU
         if (rd_enable) data_out = $gpu_get_scroll_y;
       end
 
+      16'hff43: begin
+        if (wr_enable) $gpu_set_scroll_x(data_in);
+        if (rd_enable) data_out = $gpu_get_scroll_x;
+      end
+
       16'hff44: begin
         if (wr_enable) begin $display("FF44 read-only"); $finish; end
         if (rd_enable) data_out = $gpu_get_ly;
@@ -382,9 +438,24 @@ module MMU
         if (rd_enable) data_out = $gpu_get_bgp;
       end
 
+      16'hff4d: begin
+        if (wr_enable) begin $display("ff4d read-only"); $finish; end
+        if (rd_enable) data_out = 8'hff;
+      end
+
+      // Boot ROM disable.
+      16'hff50: begin
+        if (wr_enable) begin
+          boot_rom_disabled <= 1;
+        end
+        if (rd_enable) begin
+          $display("read from FF50"); $finish;
+        end
+      end
+
       16'hffff: begin
-        $display("IE %x", data_in);
-        $finish;
+        if (wr_enable) int_enable <= data_in;
+        if (rd_enable) data_out <= int_enable;
       end
 
       16'b111111111???????: begin
@@ -402,5 +473,17 @@ module MMU
         $finish;
       end
     endcase
+  end
+
+  initial begin
+    int_enable = 0;
+    int_clear = 0;
+    int_request = 0;
+    timer_enable = 0;
+    timer_freq = 0;
+    timer_new_div = 0;
+    timer_new_counter = 0;
+    timer_set_counter = 0;
+    timer_mod = 0;
   end
 endmodule

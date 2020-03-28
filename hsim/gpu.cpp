@@ -119,7 +119,7 @@ static void gpu_scanline(gpu_t *gpu)
     }
   }
 
-  unsigned ly = gpu->ly;
+  unsigned ly = gpu->ly - 1;
   if (gpu->bg_window_display) {
     {
       unsigned y = (gpu->scroll_y + ly) & 0xFF;
@@ -194,6 +194,7 @@ void gpu_tick(gpu_t *gpu)
       gpu->ly++;
       gpu->stat_equ = gpu->ly == gpu->lyc;
       gpu->state = gpu->ly >= 144 ? VBlank : OAMRead;
+      gpu_scanline(gpu);
       return;
     }
     case VBlank:{
@@ -228,7 +229,6 @@ void gpu_tick(gpu_t *gpu)
         ++gpu->cycles;
         return;
       }
-      gpu_scanline(gpu);
       gpu->cycles = 0;
       gpu->state = HBlank;
       return;
@@ -279,6 +279,16 @@ uint8_t gpu_get_lcdc(gpu_t *gpu)
   val |= gpu->sprite_size ? 0x04 : 0x00;
   val |= gpu->sprite_display ? 0x02 : 0x00;
   return val;
+}
+
+void gpu_set_scroll_x(gpu_t *gpu, uint8_t val)
+{
+  gpu->scroll_x = val;
+}
+
+uint8_t gpu_get_scroll_x(gpu_t *gpu)
+{
+  return gpu->scroll_x;
 }
 
 void gpu_set_scroll_y(gpu_t *gpu, uint8_t val)

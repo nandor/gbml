@@ -1466,7 +1466,7 @@ Definition cpu_interrupted {T: Type} (cpu: Cpu) (sys: System T) (int: interrupt)
 Definition handle_interrupt {T: Type} (cpu: Cpu) (sys: System T) (addr: u8) (int: interrupt) : option (Cpu * System T) :=
   match sys_clear_interrupt sys int with
   | None => None
-  | Some sys => Some (cpu_with_uop (cpu_with_ime cpu false) (U_INT_M2 addr), sys)
+  | Some sys => Some (cpu_with_uop (cpu_with_halted (cpu_with_ime cpu false) false) (U_INT_M2 addr), sys)
   end.
 
 
@@ -2011,8 +2011,8 @@ Proof.
   intros H.
   destruct c eqn:Hc.
   destruct s eqn:Hs.
-  destruct uop0; 
-    unfold tick in H; 
+  destruct uop0;
+    unfold tick in H;
     simpl in H;
     try (apply imm_reader_reads in H; right; right; left; apply H);
     try (apply mem_reader_reads in H; right; right; left; apply H);

@@ -46,10 +46,13 @@ void gpu_tick(gpu_t *gpu);
 void gpu_vram_write(gpu_t *gpu, uint16_t addr, uint8_t val);
 
 void gpu_set_lcdc(gpu_t *gpu, uint8_t val);
-uint8_t gpu_get_lcdc(gpu_t *gpu);
+void gpu_set_scroll_x(gpu_t *gpu, uint8_t val);
 void gpu_set_scroll_y(gpu_t *gpu, uint8_t val);
-uint8_t gpu_get_scroll_y(gpu_t *gpu);
 void gpu_set_bgp(gpu_t *gpu, uint8_t val);
+
+uint8_t gpu_get_lcdc(gpu_t *gpu);
+uint8_t gpu_get_scroll_x(gpu_t *gpu);
+uint8_t gpu_get_scroll_y(gpu_t *gpu);
 uint8_t gpu_get_bgp(gpu_t *gpu);
 
 uint8_t gpu_get_ly(gpu_t *gpu);

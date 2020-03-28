@@ -54,11 +54,21 @@ module ALU
       end
       // SBC
       4'b0011: begin
-        $display("0011"); $finish;
+        half = lhs[3:0] - rhs[3:0] - {3'b000, cf_in};
+        full = lhs[7:4] - rhs[7:4] - {3'b000, half[4]};
+        r <= {full[3:0], half[3:0]};
+        zf_out <= !(|full[3:0] | |half[3:0]);
+        nf_out <= 1;
+        hf_out <= half[4];
+        cf_out <= full[4];
       end
       // AND
       4'b0100: begin
-        $display("0100"); $finish;
+        r <= lhs & rhs;
+        zf_out <= !(|(lhs & rhs));
+        nf_out <= 0;
+        hf_out <= 1;
+        cf_out <= 0;
       end
       // XOR
       4'b0101: begin
@@ -70,12 +80,17 @@ module ALU
       end
       // OR
       4'b0110: begin
-        $display("0110"); $finish;
+        r <= lhs | rhs;
+        zf_out <= !(|(lhs | rhs));
+        nf_out <= 0;
+        hf_out <= 0;
+        cf_out <= 0;
       end
       // CP
       4'b0111: begin
         half = lhs[3:0] - rhs[3:0];
         full = lhs[7:4] - rhs[7:4] - {3'b000, half[4]};
+        r <= lhs;
         zf_out <= !(|full[3:0] | |half[3:0]);
         nf_out <= 1;
         hf_out <= half[4];
@@ -83,39 +98,67 @@ module ALU
       end
       // RLC
       4'b1000: begin
-        $display("1000"); $finish;
+        r <= { lhs[6:0], lhs[7] };
+        zf_out <= !(|lhs);
+        nf_out <= 0;
+        hf_out <= 0;
+        cf_out <= lhs[7];
       end
       // RRC
       4'b1001: begin
-        $display("1001"); $finish;
+        r <= { lhs[0], lhs[7:1] };
+        zf_out <= !(|lhs);
+        nf_out <= 0;
+        hf_out <= 0;
+        cf_out <= lhs[0];
       end
       // RL
       4'b1010: begin
-        r <= { rhs[6:0], cf_in };
-        zf_out <= !(|rhs[6:0] | cf_in);
+        r <= { lhs[6:0], cf_in };
+        zf_out <= !(|lhs[6:0] | cf_in);
         nf_out <= 0;
         hf_out <= 0;
-        cf_out <= rhs[7];
+        cf_out <= lhs[7];
       end
       // RR
       4'b1011: begin
-        $display("1011"); $finish;
+        r <= { cf_in, lhs[7:1] };
+        zf_out <= !( cf_in | |lhs[7:1]);
+        nf_out <= 0;
+        hf_out <= 0;
+        cf_out <= lhs[0];
       end
       // SLA
       4'b1100: begin
-        $display("1100"); $finish;
+        r <= { lhs[6:0], 1'b0 };
+        zf_out <= !(|lhs[6:0]);
+        nf_out <= 0;
+        hf_out <= 0;
+        cf_out <= lhs[7];
       end
       // SRA
       4'b1101: begin
-        $display("1101"); $finish;
+        r <= { lhs[7], lhs[7:1] };
+        zf_out <= !(|lhs[7:1]);
+        nf_out <= 0;
+        hf_out <= 0;
+        cf_out <= lhs[0];
+      end
+      // SWAP
+      4'b1110: begin
+        r <= {lhs[3:0], lhs[7:4]};
+        zf_out <= !(|lhs);
+        nf_out <= 0;
+        hf_out <= 0;
+        cf_out <= 0;
       end
       // SRL
-      4'b1110: begin
-        $display("1110"); $finish;
-      end
-      // SRR
       4'b1111: begin
-        $display("1111"); $finish;
+        r <= { 1'b0, lhs[7:1] };
+        zf_out <= !(|lhs[7:1]);
+        nf_out <= 0;
+        hf_out <= 0;
+        cf_out <= lhs[0];
       end
     endcase
   end

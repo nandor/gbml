@@ -146,6 +146,23 @@ int vpi_gpu_get_scroll_y(char *data)
   return 0;
 }
 
+int vpi_gpu_set_scroll_x(char *data)
+{
+  vpiHandle call = vpi_handle(vpiSysTfCall, NULL);
+  vpiHandle args = vpi_iterate(vpiArgument, call);
+
+  auto val = GetArg<uint8_t>(args);
+  gpu_set_scroll_x((gpu_t *)data, val);
+  return 0;
+}
+
+int vpi_gpu_get_scroll_x(char *data)
+{
+  vpiHandle call = vpi_handle(vpiSysTfCall, NULL);
+  Return(call, gpu_get_scroll_x((gpu_t *)data));
+  return 0;
+}
+
 int vpi_gpu_set_bgp(char *data)
 {
   vpiHandle call = vpi_handle(vpiSysTfCall, NULL);
@@ -248,6 +265,22 @@ void gbenv_register(void) {
   data.type      = vpiSysFunc;
   data.tfname    = "$gpu_get_bgp";
   data.calltf    = vpi_gpu_get_bgp;
+  data.compiletf = Compile<>;
+  data.sizetf    = Size<uint8_t>;
+  data.user_data = (char *)&env->gpu;
+  vpi_register_systf(&data);
+
+  data.type      = vpiSysTask;
+  data.tfname    = "$gpu_set_scroll_x";
+  data.calltf    = vpi_gpu_set_scroll_x;
+  data.compiletf = Compile<uint8_t>;
+  data.sizetf    = nullptr;
+  data.user_data = (char *)&env->gpu;
+  vpi_register_systf(&data);
+
+  data.type      = vpiSysFunc;
+  data.tfname    = "$gpu_get_scroll_x";
+  data.calltf    = vpi_gpu_get_scroll_x;
   data.compiletf = Compile<>;
   data.sizetf    = Size<uint8_t>;
   data.user_data = (char *)&env->gpu;

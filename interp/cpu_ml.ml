@@ -1099,7 +1099,8 @@ let tick cpu sys =
   | U_CB ->
     (match System.read sys r.pc with
     | None -> None
-    | Some op -> Some (handle_cb cpu sys op, sys)
+    | Some op ->
+      Some (handle_cb cpu sys op, sys)
     )
   | U_MOV_R8_R16_M2_R(r8, r16) ->
       let addr = get_reg_16 r r16 in
