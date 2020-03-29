@@ -17,50 +17,51 @@ module ALU
   , output reg       cf_out
   );
 
-  logic [4:0] half;
-  logic [4:0] full;
+  wire [4:0] half_add = lhs[3:0] + rhs[3:0];
+  wire [4:0] full_add = lhs[7:4] + rhs[7:4] + {3'b000, half_add[4]};
 
-  always @(op or lhs or rhs or zf_in or nf_in or hf_in or cf_in) begin
+  wire [4:0] half_adc = lhs[3:0] + rhs[3:0] + {3'b000, cf_in};
+  wire [4:0] full_adc = lhs[7:4] + rhs[7:4] + {3'b000, half_adc[4]};
+
+  wire [4:0] half_sub = lhs[3:0] - rhs[3:0];
+  wire [4:0] full_sub = lhs[7:4] - rhs[7:4] - {3'b000, half_sub[4]};
+
+  wire [4:0] half_sbc = lhs[3:0] - rhs[3:0] - {3'b000, cf_in};
+  wire [4:0] full_sbc = lhs[7:4] - rhs[7:4] - {3'b000, half_sbc[4]};
+
+  always @* begin
     case (op)
       // ADD
       4'b0000: begin
-        half = lhs[3:0] + rhs[3:0];
-        full = lhs[7:4] + rhs[7:4] + {3'b000, half[4]};
-        r <= {full[3:0], half[3:0]};
-        zf_out <= !(|full[3:0] | |half[3:0]);
+        r <= {full_add[3:0], half_add[3:0]};
+        zf_out <= !(|full_add[3:0] | |half_add[3:0]);
         nf_out <= 0;
-        hf_out <= half[4];
-        cf_out <= full[4];
+        hf_out <= half_add[4];
+        cf_out <= full_add[4];
       end
       // ADC
       4'b0001: begin
-        half = lhs[3:0] + rhs[3:0] + {3'b000, cf_in};
-        full = lhs[7:4] + rhs[7:4] + {3'b000, half[4]};
-        r <= {full[3:0], half[3:0]};
-        zf_out <= !(|full[3:0] | |half[3:0]);
+        r <= {full_adc[3:0], half_adc[3:0]};
+        zf_out <= !(|full_adc[3:0] | |half_adc[3:0]);
         nf_out <= 0;
-        hf_out <= half[4];
-        cf_out <= full[4];
+        hf_out <= half_adc[4];
+        cf_out <= full_adc[4];
       end
       // SUB
       4'b0010: begin
-        half = lhs[3:0] - rhs[3:0];
-        full = lhs[7:4] - rhs[7:4] - {3'b000, half[4]};
-        r <= {full[3:0], half[3:0]};
-        zf_out <= !(|full[3:0] | |half[3:0]);
+        r <= {full_sub[3:0], half_sub[3:0]};
+        zf_out <= !(|full_sub[3:0] | |half_sub[3:0]);
         nf_out <= 1;
-        hf_out <= half[4];
-        cf_out <= full[4];
+        hf_out <= half_sub[4];
+        cf_out <= full_sub[4];
       end
       // SBC
       4'b0011: begin
-        half = lhs[3:0] - rhs[3:0] - {3'b000, cf_in};
-        full = lhs[7:4] - rhs[7:4] - {3'b000, half[4]};
-        r <= {full[3:0], half[3:0]};
-        zf_out <= !(|full[3:0] | |half[3:0]);
+        r <= {full_sbc[3:0], half_sbc[3:0]};
+        zf_out <= !(|full_sbc[3:0] | |half_sbc[3:0]);
         nf_out <= 1;
-        hf_out <= half[4];
-        cf_out <= full[4];
+        hf_out <= half_sbc[4];
+        cf_out <= full_sbc[4];
       end
       // AND
       4'b0100: begin
@@ -88,13 +89,11 @@ module ALU
       end
       // CP
       4'b0111: begin
-        half = lhs[3:0] - rhs[3:0];
-        full = lhs[7:4] - rhs[7:4] - {3'b000, half[4]};
         r <= lhs;
-        zf_out <= !(|full[3:0] | |half[3:0]);
+        zf_out <= !(|full_sub[3:0] | |half_sub[3:0]);
         nf_out <= 1;
-        hf_out <= half[4];
-        cf_out <= full[4];
+        hf_out <= half_sub[4];
+        cf_out <= full_sub[4];
       end
       // RLC
       4'b1000: begin

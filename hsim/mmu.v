@@ -446,6 +446,7 @@ module MMU
       // Boot ROM disable.
       16'hff50: begin
         if (wr_enable) begin
+          $display("Disabled Boot ROM");
           boot_rom_disabled <= 1;
         end
         if (rd_enable) begin

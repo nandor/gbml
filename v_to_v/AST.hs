@@ -15,9 +15,29 @@ data Parameter
   = Parameter Type Bool Integer String
   deriving (Show)
 
+data Expr
+  = Add Expr Expr
+  | Sub Expr Expr
+  | Range Integer Integer
+  | Cons [Expr]
+  deriving (Show)
+
+data Edge
+  = Pos
+  | Neg
+  | All
+  deriving (Eq, Show)
+
+data Item
+  = RegDecl String Integer
+  | WireDecl String Integer (Maybe Expr)
+  | AlwaysBlock [String]
+  deriving (Show)
+
 data Module
   = Module
     { name :: String
     , params :: [Parameter]
+    , items :: [Item]
     }
   deriving (Show)

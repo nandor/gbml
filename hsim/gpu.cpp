@@ -70,7 +70,7 @@ static void fill_pixel(gpu_t *gpu, unsigned y, unsigned x, char c) {
   }
 }
 
-uint8_t get_tile_pixel(gpu_t *gpu, int8_t tile, uint8_t l, uint8_t c, uint16_t base)
+static uint8_t get_tile_pixel(gpu_t *gpu, int8_t tile, uint8_t l, uint8_t c, uint16_t base)
 {
   uint16_t idx = base + (l << 1);
   if (base == 0x1000) {
@@ -86,7 +86,7 @@ uint8_t get_tile_pixel(gpu_t *gpu, int8_t tile, uint8_t l, uint8_t c, uint16_t b
   return p0 | p1;
 }
 
-uint8_t bg_pixel(gpu_t *gpu, unsigned y, unsigned x)
+static uint8_t __attribute__((noinline)) bg_pixel(gpu_t *gpu, unsigned y, unsigned x)
 {
   uint16_t map_base = gpu->bg_window_tile_map ? 0x1C00 : 0x1800;
   uint16_t addr =  map_base + (y >> 3) * 32 + (x >> 3);
@@ -99,7 +99,7 @@ uint8_t bg_pixel(gpu_t *gpu, unsigned y, unsigned x)
   return (pxp << 6) | (pxp << 4) | (pxp << 2) | (pxp << 0);
 }
 
-uint8_t wnd_pixel(gpu_t *gpu, unsigned y, unsigned x)
+static uint8_t wnd_pixel(gpu_t *gpu, unsigned y, unsigned x)
 {
   assert(!"not implemented");
 }
@@ -119,6 +119,7 @@ static void gpu_scanline(gpu_t *gpu)
     }
   }
 
+  assert(gpu->ly > 0 && "invalid ly");
   unsigned ly = gpu->ly - 1;
   if (gpu->bg_window_display) {
     {
@@ -185,7 +186,7 @@ void gpu_tick(gpu_t *gpu)
     return;
   }
   switch (gpu->state) {
-    case HBlank:{
+    case HBlank: {
       if (gpu->cycles < 51 * 4) {
         ++gpu->cycles;
         return;
@@ -197,7 +198,7 @@ void gpu_tick(gpu_t *gpu)
       gpu_scanline(gpu);
       return;
     }
-    case VBlank:{
+    case VBlank: {
       if (gpu->cycles < 114 * 4) {
         ++gpu->cycles;
         return;
@@ -215,7 +216,7 @@ void gpu_tick(gpu_t *gpu)
       }
       return;
     }
-    case OAMRead:{
+    case OAMRead: {
       if (gpu->cycles < 20 * 4) {
         ++gpu->cycles;
         return;
@@ -224,7 +225,7 @@ void gpu_tick(gpu_t *gpu)
       gpu->state = VRAMRead;
       return;
     }
-    case VRAMRead:{
+    case VRAMRead: {
       if (gpu->cycles < 43 * 4) {
         ++gpu->cycles;
         return;
@@ -256,6 +257,7 @@ void gpu_set_lcdc(gpu_t *gpu, uint8_t val)
     }
     gpu->state = HBlank;
     gpu->cycles = 0;
+    gpu->ly = 0;
   }
   gpu->enable = enabled;
   gpu->window_tile_map = (val & 0x40) != 0;
