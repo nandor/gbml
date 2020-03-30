@@ -113,17 +113,35 @@ value :: GenParser Char st Value
 value = lexeme . try $ do
   width <- decimal
   char '\''
-  (base, pat) <- msum
-    [ char 'b' *> many1 (oneOf "01" <|> dchi) >>= (\xs -> return (2, map toDigit xs))
-    , char 'd' *> many1 (digit <|> dchi) >>= (\xs -> return (10, map toDigit xs))
-    , char 'h' *> many1 (hexDigit <|> dchi) >>= (\xs -> return (16, map toDigit xs))
+  val <- msum
+    [ char 'b' *> many1 (dchi <|> oneOf "01") >>=
+        \xs -> return $ binary width (reverse xs)
+    , char 'd' *> many1 digit    >>=
+        number width 10
+    , char 'h' *> many1 hexDigit >>=
+        number width 16
     ]
-  return $ Value width base pat
+  return $ Value val
   where
     dchi = char 'x' <|> char '?'
-    toDigit '?' = HI
-    toDigit 'x' = DC
-    toDigit ch = D (toInteger (digitToInt ch))
+
+    number width base xs =
+      let n = foldl (\n d -> n * base + toInteger (digitToInt d)) 0 xs in
+      return $ toBinary width n []
+
+    binary 0 _ = []
+    binary n [] = X : binary (n - 1) []
+    binary n (d:ds) = toDigit d : binary (n - 1) ds
+
+    toDigit '?' = Z
+    toDigit 'x' = X
+    toDigit '0' = L
+    toDigit '1' = H
+
+    toBinary 0 _ acc = reverse acc
+    toBinary d n acc =
+      let n' = n `div` 2 in
+      toBinary (d - 1) n' ((if n `mod` 2 == 0 then L else H) : acc)
 
 expr :: GenParser Char st Expr
 expr = try ternary <|> or

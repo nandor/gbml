@@ -272,7 +272,7 @@ module CPU
           16'bxxxxxxxx00000000: begin
             addr <= pc;
             rd_enable <= 1'b1;
-            state <= 16'hxx01;
+            state <= 16'h0001;
           end
           // M1 T2
           16'bxxxxxxxx00000001: begin

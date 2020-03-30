@@ -16,13 +16,14 @@ data Parameter
   deriving (Show)
 
 data Digit
-  = DC
-  | HI
-  | D Integer
+  = X
+  | Z
+  | H
+  | L
   deriving (Show)
 
 data Value
-  = Value Integer Integer [Digit]
+  = Value [Digit]
   deriving (Show)
 
 data Expr
