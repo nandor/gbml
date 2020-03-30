@@ -80,6 +80,8 @@ module CPU
       4'b0010 == alu_op ? half_sub[3'd4] :
       4'b0011 == alu_op ? half_sbc[3'd4] :
       4'b0100 == alu_op ? 1'b1 :
+      4'b0101 == alu_op ? 1'b0 :
+      4'b0110 == alu_op ? 1'b0 :
       4'b0111 == alu_op ? half_sub[3'd4] :
       4'b1000 == alu_op ? 1'b0 :
       4'b1001 == alu_op ? 1'b0 :
@@ -90,15 +92,33 @@ module CPU
       4'b1110 == alu_op ? 1'b0 :
                           1'b0;
 
+  assign alu_cf =
+      4'b0000 == alu_op ? full_add[3'd4] :
+      4'b0001 == alu_op ? full_adc[3'd4] :
+      4'b0010 == alu_op ? full_sub[3'd4] :
+      4'b0011 == alu_op ? full_sbc[3'd4] :
+      4'b0100 == alu_op ? 1'b0 :
+      4'b0101 == alu_op ? 1'b0 :
+      4'b0110 == alu_op ? 1'b0 :
+      4'b0111 == alu_op ? full_sub[3'd4] :
+      4'b1000 == alu_op ? alu_lhs[3'd7] :
+      4'b1001 == alu_op ? alu_lhs[3'd0] :
+      4'b1010 == alu_op ? alu_lhs[3'd7] :
+      4'b1011 == alu_op ? alu_lhs[3'd0] :
+      4'b1100 == alu_op ? alu_lhs[3'd7] :
+      4'b1101 == alu_op ? alu_lhs[3'd0] :
+      4'b1110 == alu_op ? 1'b0 :
+                          alu_lhs[3'd0];
+
   assign alu_r =
-      4'b0000 == alu_op ? {full_add[3:0], half_add[3:0]} :
-      4'b0001 == alu_op ? {full_adc[3:0], half_adc[3:0]} :
-      4'b0010 == alu_op ? {full_sub[3:0], half_sub[3:0]} :
-      4'b0011 == alu_op ? {full_sbc[3:0], half_sbc[3:0]} :
+      4'b0000 == alu_op ? { full_add[3:0], half_add[3:0] } :
+      4'b0001 == alu_op ? { full_adc[3:0], half_adc[3:0] } :
+      4'b0010 == alu_op ? { full_sub[3:0], half_sub[3:0] } :
+      4'b0011 == alu_op ? { full_sbc[3:0], half_sbc[3:0] } :
       4'b0100 == alu_op ? alu_lhs & alu_rhs :
       4'b0101 == alu_op ? alu_lhs ^ alu_rhs :
       4'b0110 == alu_op ? alu_lhs | alu_rhs :
-      4'b0111 == alu_op ? alu_lhs :
+      4'b0111 == alu_op ? { full_sub[3:0], half_sub[3:0] } :
       4'b1000 == alu_op ? { alu_lhs[6:0], alu_lhs[3'd7] } :
       4'b1001 == alu_op ? { alu_lhs[3'd0], alu_lhs[7:1] } :
       4'b1010 == alu_op ? { alu_lhs[6:0], cf } :
@@ -416,6 +436,13 @@ module CPU
             state <= {state[15:8], 8'h4};
           end
           // M1 T4: ALU r8
+          16'b10111xxx00000011: begin
+            state <= {state[15:8], 8'h0};
+            zf <= alu_zf;
+            nf <= alu_nf;
+            hf <= alu_hf;
+            cf <= alu_cf;
+          end
           16'b10xxxxxx00000011: begin
             state <= {state[15:8], 8'h0};
             a <= alu_r;
@@ -444,6 +471,13 @@ module CPU
             alu_op <= state[13:11];
           end
           // M2 T4: ALU (HL)
+          16'b1011111000000111: begin
+            state <= {state[15:8], 8'h0};
+            zf <= alu_zf;
+            nf <= alu_nf;
+            hf <= alu_hf;
+            cf <= alu_cf;
+          end
           16'b10xxx11000000111: begin
             state <= {state[15:8], 8'h0};
             a <= alu_r;
@@ -1907,6 +1941,13 @@ module CPU
             alu_op <= state[13:11];
           end
           // M2 T3: ALU d8
+          16'b1111111000000110: begin
+            state <= {state[15:8], 8'h07};
+            zf <= alu_zf;
+            nf <= alu_nf;
+            hf <= alu_hf;
+            cf <= alu_cf;
+          end
           16'b11xxx11000000110: begin
             state <= {state[15:8], 8'h07};
             a <= alu_r;
