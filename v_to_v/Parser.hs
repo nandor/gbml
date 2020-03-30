@@ -35,6 +35,7 @@ keywords =
   , "reg"
   , "reg"
   , "wire"
+  , "assign"
   ]
 
 oneLineComment :: GenParser Char st ()
@@ -333,11 +334,8 @@ itemWireDecl = do
   keyword "wire"
   width <- busWidth
   name <- identifier
-  init <- optionMaybe $ do
-    symbol "="
-    expr
   semi
-  return $ WireDecl name width init
+  return $ WireDecl name width
 
 edge :: GenParser Char st (Edge, Expr)
 edge = msum
@@ -361,15 +359,14 @@ itemAlways = do
   body <- statement
   return $ Always cond body
 
-itemInstance :: GenParser Char st Item
-itemInstance = do
-  ty <- identifier
-  name <- identifier
-  lparen
-  params <- commaSep expr
-  rparen
+itemAssign :: GenParser Char st Item
+itemAssign = do
+  keyword "assign"
+  dest <- identifier
+  symbol "="
+  val <- expr
   semi
-  return $ Instance ty name params
+  return $ Assign dest val
 
 topmod :: GenParser Char st Module
 topmod = do
@@ -392,7 +389,7 @@ topmod = do
     [ itemRegDecl
     , itemWireDecl
     , itemAlways
-    , itemInstance
+    , itemAssign
     ]) (keyword "endmodule")
   return $ Module name params items
 

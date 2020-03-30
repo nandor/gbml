@@ -52,18 +52,24 @@ module CPU
   reg[7:0] w;
   reg[7:0] tmp;
 
-  wire[4:0] daa_lo;
-  wire[4:0] daa_hi;
-
   // Arithmetic and Logical Unit.
-  wire [4:0] half_add = alu_lhs[3:0] + alu_rhs[3:0];
-  wire [4:0] full_add = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_add[4]};
-  wire [4:0] half_adc = alu_lhs[3:0] + alu_rhs[3:0] + {3'b000, cf};
-  wire [4:0] full_adc = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_adc[4]};
-  wire [4:0] half_sub = alu_lhs[3:0] - alu_rhs[3:0];
-  wire [4:0] full_sub = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sub[4]};
-  wire [4:0] half_sbc = alu_lhs[3:0] - alu_rhs[3:0] - {3'b000, cf};
-  wire [4:0] full_sbc = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sbc[4]};
+  wire [4:0] half_add;
+  wire [4:0] full_add;
+  wire [4:0] half_adc;
+  wire [4:0] full_adc;
+  wire [4:0] half_sub;
+  wire [4:0] full_sub;
+  wire [4:0] half_sbc;
+  wire [4:0] full_sbc;
+
+  assign half_add = alu_lhs[3:0] + alu_rhs[3:0];
+  assign full_add = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_add[4]};
+  assign half_adc = alu_lhs[3:0] + alu_rhs[3:0] + {3'b000, cf};
+  assign full_adc = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_adc[4]};
+  assign half_sub = alu_lhs[3:0] - alu_rhs[3:0];
+  assign full_sub = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sub[4]};
+  assign half_sbc = alu_lhs[3:0] - alu_rhs[3:0] - {3'b000, cf};
+  assign full_sbc = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sbc[4]};
 
   assign alu_zf = !(|alu_r);
   assign alu_nf = 4'b0010 == alu_op || 4'b0011 == alu_op || 4'b0111 == alu_op;

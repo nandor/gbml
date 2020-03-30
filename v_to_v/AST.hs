@@ -68,9 +68,9 @@ data Statement
 
 data Item
   = RegDecl String Integer
-  | WireDecl String Integer (Maybe Expr)
+  | WireDecl String Integer
   | Always [(Edge, Expr)] Statement
-  | Instance String String [Expr]
+  | Assign String Expr
   deriving (Show)
 
 data Module
