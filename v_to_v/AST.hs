@@ -46,7 +46,6 @@ data Expr
   | Cons [Expr]
   | Ident String
   | Const Value
-  | Int Integer
   deriving (Show)
 
 data Edge

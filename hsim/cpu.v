@@ -63,24 +63,24 @@ module CPU
   wire [4:0] full_sbc;
 
   assign half_add = alu_lhs[3:0] + alu_rhs[3:0];
-  assign full_add = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_add[4]};
+  assign full_add = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_add[3'd4]};
   assign half_adc = alu_lhs[3:0] + alu_rhs[3:0] + {3'b000, cf};
-  assign full_adc = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_adc[4]};
+  assign full_adc = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_adc[3'd4]};
   assign half_sub = alu_lhs[3:0] - alu_rhs[3:0];
-  assign full_sub = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sub[4]};
+  assign full_sub = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sub[3'd4]};
   assign half_sbc = alu_lhs[3:0] - alu_rhs[3:0] - {3'b000, cf};
-  assign full_sbc = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sbc[4]};
+  assign full_sbc = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sbc[3'd4]};
 
   assign alu_zf = !(|alu_r);
   assign alu_nf = 4'b0010 == alu_op || 4'b0011 == alu_op || 4'b0111 == alu_op;
 
   assign alu_hf =
-      4'b0000 == alu_op ? half_add[4] :
-      4'b0001 == alu_op ? half_adc[4] :
-      4'b0010 == alu_op ? half_sub[4] :
-      4'b0011 == alu_op ? half_sbc[4] :
+      4'b0000 == alu_op ? half_add[3'd4] :
+      4'b0001 == alu_op ? half_adc[3'd4] :
+      4'b0010 == alu_op ? half_sub[3'd4] :
+      4'b0011 == alu_op ? half_sbc[3'd4] :
       4'b0100 == alu_op ? 1'b1 :
-      4'b0111 == alu_op ? half_sub[4] :
+      4'b0111 == alu_op ? half_sub[3'd4] :
       4'b1000 == alu_op ? 1'b0 :
       4'b1001 == alu_op ? 1'b0 :
       4'b1010 == alu_op ? 1'b0 :
@@ -99,12 +99,12 @@ module CPU
       4'b0101 == alu_op ? alu_lhs ^ alu_rhs :
       4'b0110 == alu_op ? alu_lhs | alu_rhs :
       4'b0111 == alu_op ? alu_lhs :
-      4'b1000 == alu_op ? { alu_lhs[6:0], alu_lhs[7] } :
-      4'b1001 == alu_op ? { alu_lhs[0], alu_lhs[7:1] } :
+      4'b1000 == alu_op ? { alu_lhs[6:0], alu_lhs[3'd7] } :
+      4'b1001 == alu_op ? { alu_lhs[3'd0], alu_lhs[7:1] } :
       4'b1010 == alu_op ? { alu_lhs[6:0], cf } :
       4'b1011 == alu_op ? { cf, alu_lhs[7:1] } :
       4'b1100 == alu_op ? { alu_lhs[6:0], 1'b0 } :
-      4'b1101 == alu_op ? { alu_lhs[7], alu_lhs[7:1] } :
+      4'b1101 == alu_op ? { alu_lhs[3'd7], alu_lhs[7:1] } :
       4'b1110 == alu_op ? { alu_lhs[3:0], alu_lhs[7:4]} :
                           { 1'b0, alu_lhs[7:1] };
 
@@ -164,7 +164,7 @@ module CPU
           // M2 T3: INT
           5'h06: begin
             int_state <= 5'h07;
-            sp <= sp - 1;
+            sp <= sp + 16'hffff;
           end
           // M2 T4: INT
           5'h07: begin
@@ -195,13 +195,13 @@ module CPU
           5'h0d: begin
             int_state <= 5'h0e;
             data_out <= pc[15:8];
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M4 T3: INT
           5'h0e: begin
             int_state <= 5'h0f;
-            wr_enable <= 0;
-            sp <= sp - 1;
+            wr_enable <= 1'b0;
+            sp <= sp + 16'hffff;
             pc <= { 8'h00, pc[7:0] };
           end
           // M4 T4: INT
@@ -217,12 +217,12 @@ module CPU
           5'h11: begin
             int_state <= 5'h12;
             data_out <= pc[7:0];
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M5 T3: INT
           5'h12: begin
             int_state <= 5'h13;
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
             if (int_pending & 8'b00000001) begin
               pc <= { pc[15:8], 8'h40 };
               int_clear <= 8'b00000001;
@@ -251,19 +251,19 @@ module CPU
           // M1 T1
           16'bxxxxxxxx00000000: begin
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
             state <= 16'hxx01;
           end
           // M1 T2
           16'bxxxxxxxx00000001: begin
             state <= {data_in, 8'h02};
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
 
           // M1 T3: LD r16, d16
           16'b00xx000100000010: begin
             state <= {state[15:8], 8'h3};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD r16, d16
           16'b00xx000100000011: begin
@@ -273,7 +273,7 @@ module CPU
           16'b00xx000100000100: begin
             state <= {state[15:8], 8'h5};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LD r16, d16
           16'b00xx000100000101: begin
@@ -286,8 +286,8 @@ module CPU
           // M2 T4: LD r16, d16
           16'b00xx000100000111: begin
             state <= {state[15:8], 8'h8};
-            rd_enable <= 0;
-            pc <= pc + 1;
+            rd_enable <= 1'b0;
+            pc <= pc + 16'd1;
             case (state[13:12])
               2'b00: c <= data_in;
               2'b01: e <= data_in;
@@ -298,7 +298,7 @@ module CPU
           // M3 T1: LD r16, d16
           16'b00xx000100001000: begin
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
             state <= {state[15:8], 8'h9};
           end
           // M3 T2: LD r16, d16
@@ -312,8 +312,8 @@ module CPU
           // M3 T3: LD r16, d16
           16'b00xx000100001011: begin
             state <= {state[15:8], 8'h0};
-            rd_enable <= 0;
-            pc <= pc + 1;
+            rd_enable <= 1'b0;
+            pc <= pc + 16'd1;
             case (state[13:12])
               2'b00: b <= data_in;
               2'b01: d <= data_in;
@@ -325,7 +325,7 @@ module CPU
           // M1 T3: LDI/LDD (HL), r8
           16'b001x001000000010: begin
             state <= {state[15:8], 8'h3};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LDI/LDD (HL), r8
           16'b001x001000000011: begin
@@ -336,12 +336,12 @@ module CPU
             state <= {state[15:8], 8'h5};
             addr <= {h, l};
             data_out <= a;
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M2 T2: LDI/LDD (HL), r8
           16'b001x001000000101: begin
             state <= {state[15:8], 8'h6};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M2 T3: LDI/LDD (HL), r8
           16'b001x001000000110: begin
@@ -350,16 +350,16 @@ module CPU
           // M2 T4: LDI/LDD (HL), r8
           16'b001x001000000111: begin
             state <= {state[15:8], 8'h0};
-            case (state[12])
-              1'b0: {h, l} <= {h, l} + 1;
-              1'b1: {h, l} <= {h, l} - 1;
+            case (state[4'd12])
+              1'b0: {h, l} <= {h, l} + 16'h0001;
+              1'b1: {h, l} <= {h, l} + 16'hffff;
             endcase
           end
 
           // M1 T3: LDI/LDD r8, (HL)
           16'b001x101000000010: begin
             state <= {state[15:8], 8'h3};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LDI/LDD r8, (HL)
           16'b001x101000000011: begin
@@ -369,13 +369,13 @@ module CPU
           16'b001x101000000100: begin
             state <= {state[15:8], 8'h5};
             addr <= {h, l};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LDI/LDD r8, (HL)
           16'b001x101000000101: begin
             state <= {state[15:8], 8'h6};
             a <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: LDI/LDD r8, (HL)
           16'b001x101000000110: begin
@@ -384,21 +384,21 @@ module CPU
           // M2 T4: LDI/LDD r8, (HL)
           16'b001x101000000111: begin
             state <= {state[15:8], 8'h0};
-            case (state[12])
-              1'b0: {h, l} <= {h, l} + 1;
-              1'b1: {h, l} <= {h, l} - 1;
+            case (state[4'd12])
+              1'b0: {h, l} <= {h, l} + 16'h0001;
+              1'b1: {h, l} <= {h, l} + 16'hffff;
             endcase
           end
 
           // M1 T4: ALU (HL)
           16'b10xxx11000000010: begin
             state <= {state[15:8], 8'h3};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T3: ALU r8
           16'b10xxxxxx00000010: begin
             state <= {state[15:8], 8'h3};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             alu_lhs <= a;
             case (state[10:8])
               3'b000: alu_rhs <= b;
@@ -429,13 +429,13 @@ module CPU
           16'b10xxx11000000100: begin
             state <= {state[15:8], 8'h5};
             addr <= {h, l};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: ALU (HL)
           16'b10xxx11000000101: begin
             state <= {state[15:8], 8'h6};
             alu_rhs <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: ALU (HL)
           16'b10xxx11000000110: begin
@@ -456,7 +456,7 @@ module CPU
           // M1 T3: LDI/LDD (HL), A
           16'b001x001000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LDI/LDD (HL), A
           16'b001x001000000011: begin
@@ -466,13 +466,13 @@ module CPU
           16'b001x001000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= {h, l};
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
             data_out <= a;
           end
           // M2 T2: LDI/LDD (HL), A
           16'b001x001000000101: begin
             state <= {state[15:8], 8'h06};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M2 T3: LDI/LDD (HL), A
           16'b001x001000000110: begin
@@ -481,13 +481,13 @@ module CPU
           // M2 T4: LDI/LDD (HL), A
           16'b001x001000000111: begin
             state <= {state[15:8], 8'h00};
-            {h, l} <= {h, l} + 1;
+            {h, l} <= {h, l} + 16'h0001;
           end
 
           // M1 T3: CB
           16'b1100101100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: CB
           16'b1100101100000011: begin
@@ -497,18 +497,18 @@ module CPU
           16'b1100101100000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: CB
           16'b1100101100000101: begin
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             state <= {data_in, 8'h86};
           end
 
           // M2 T3: CB alu (HL)
           16'b00xxx11010000110: begin
             state <= {state[15:8], 8'h87};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T4: CB alu (HL)
           16'b00xxx11010000111: begin
@@ -518,12 +518,12 @@ module CPU
           16'b00xxx11010001000: begin
             state <= {state[15:8], 8'h89};
             addr <= {h, l};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: CB alu (HL)
           16'b00xxx11010001001: begin
             state <= {state[15:8], 8'h8a};
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             alu_lhs <= data_in;
           end
           // M3 T3: CB alu (HL)
@@ -546,12 +546,12 @@ module CPU
             state <= {state[15:8], 8'h8d};
             addr <= {h, l};
             data_out <= z;
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M4 T2: CB alu (HL)
           16'b00xxx11010001101: begin
             state <= {state[15:8], 8'h8e};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M4 T3: CB alu (HL)
           16'b00xxx11010001110: begin
@@ -565,7 +565,7 @@ module CPU
           // M2 T3: CB alu
           16'b00xxxxxx10000110: begin
             state <= {state[15:8], 8'h87};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             case (state[10:8])
               3'b000: alu_lhs <= b;
               3'b001: alu_lhs <= c;
@@ -599,7 +599,7 @@ module CPU
           // M2 T3: CB BIT (HL)
           16'b01xxx11010000110: begin
             state <= {state[15:8], 8'h87};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T4: CB BIT (HL)
           16'b01xxx11010000111: begin
@@ -609,13 +609,13 @@ module CPU
           16'b01xxx11010001000: begin
             state <= {state[15:8], 8'h89};
             addr <= {h, l};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: CB BIT (HL)
           16'b01xxx11010001001: begin
             state <= {state[15:8], 8'h8a};
             tmp <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: CB BIT (HL)
           16'b01xxx11010001010: begin
@@ -625,14 +625,14 @@ module CPU
           16'b01xxx11010001011: begin
             state <= {state[15:8], 8'h00};
             zf <= !tmp[state[13:11]];
-            nf <= 0;
-            hf <= 1;
+            nf <= 1'b0;
+            hf <= 1'b1;
           end
 
           // M2 T3: CB BIT
           16'b01xxxxxx10000110: begin
             state <= {state[15:8], 8'h87};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T4: CB BIT
           16'b01xxxxxx10000111: begin
@@ -646,14 +646,14 @@ module CPU
               3'b101: zf <= !l[state[13:11]];
               3'b111: zf <= !a[state[13:11]];
             endcase
-            nf <= 0;
-            hf <= 1;
+            nf <= 1'b0;
+            hf <= 1'b1;
           end
 
           // M2 T3: CB RES (HL)
           16'b10xxx11010000110: begin
             state <= {state[15:8], 8'h87};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T3: CB RES (HL)
           16'b10xxx11010000111: begin
@@ -663,13 +663,13 @@ module CPU
           16'b10xxx11010001000: begin
             state <= {state[15:8], 8'h89};
             addr <= {h, l};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: CB RES (HL)
           16'b10xxx11010001001: begin
             state <= {state[15:8], 8'h8a};
             tmp <= data_out;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: CB RES (HL)
           16'b10xxx11010001010: begin
@@ -684,13 +684,13 @@ module CPU
           16'b10xxx11010001100: begin
             state <= {state[15:8], 8'h8d};
             addr <= {h, l};
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
             data_out <= tmp;
           end
           // M4 T2: CB RES (HL)
           16'b10xxx11010001101: begin
             state <= {state[15:8], 8'h8e};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M4 T3: CB RES (HL)
           16'b10xxx11010001110: begin
@@ -704,7 +704,7 @@ module CPU
           // M2 T3: CB RES
           16'b10xxxxxx10000110: begin
             state <= {state[15:8], 8'h87};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T3: CB RES
           16'b10xxxxxx10000111: begin
@@ -723,7 +723,7 @@ module CPU
           // M2 T3: CB SET (HL)
           16'b11xxx11010000110: begin
             state <= {state[15:8], 8'h87};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T3: CB SET (HL)
           16'b11xxx11010000111: begin
@@ -733,13 +733,13 @@ module CPU
           16'b11xxx11010001000: begin
             state <= {state[15:8], 8'h89};
             addr <= {h, l};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: CB SET (HL)
           16'b11xxx11010001001: begin
             state <= {state[15:8], 8'h8a};
             tmp <= data_out;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: CB SET (HL)
           16'b11xxx11010001010: begin
@@ -754,13 +754,13 @@ module CPU
           16'b11xxx11010001100: begin
             state <= {state[15:8], 8'h8d};
             addr <= {h, l};
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
             data_out <= tmp;
           end
           // M4 T2: CB SET (HL)
           16'b11xxx11010001101: begin
             state <= {state[15:8], 8'h8e};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M4 T3: CB SET (HL)
           16'b11xxx11010001110: begin
@@ -774,7 +774,7 @@ module CPU
           // M2 T3: CB SET
           16'b11xxxxxx10000110: begin
             state <= {state[15:8], 8'h87};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T3: CB SET
           16'b11xxxxxx10000111: begin
@@ -793,79 +793,79 @@ module CPU
           // M2 T3: RLCA
           16'b0000011100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             alu_lhs <= a;
-            alu_rhs <= 0;
+            alu_rhs <= 1'b0;
             alu_op <= 4'b1000;
           end
           // M2 T4: RLCA
           16'b0000011100000011: begin
             state <= {state[15:8], 8'h00};
             a <= alu_r;
-            zf <= 0;
-            nf <= 0;
-            hf <= 0;
+            zf <= 1'b0;
+            nf <= 1'b0;
+            hf <= 1'b0;
             cf <= alu_cf;
           end
 
           // M2 T3: RLA
           16'b0001011100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             alu_lhs <= a;
-            alu_rhs <= 0;
+            alu_rhs <= 1'b0;
             alu_op <= 4'b1010;
           end
           // M2 T4: RLA
           16'b0001011100000011: begin
             state <= {state[15:8], 8'h00};
             a <= alu_r;
-            zf <= 0;
-            nf <= 0;
-            hf <= 0;
+            zf <= 1'b0;
+            nf <= 1'b0;
+            hf <= 1'b0;
             cf <= alu_cf;
           end
 
           // M2 T3: RRCA
           16'b0000111100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             alu_lhs <= a;
-            alu_rhs <= 0;
+            alu_rhs <= 1'b0;
             alu_op <= 4'b1001;
           end
           // M2 T4: RRCA
           16'b0000111100000011: begin
             state <= {state[15:8], 8'h00};
             a <= alu_r;
-            zf <= 0;
-            nf <= 0;
-            hf <= 0;
+            zf <= 1'b0;
+            nf <= 1'b0;
+            hf <= 1'b0;
             cf <= alu_cf;
           end
 
           // M2 T3: RRA
           16'b0001111100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             alu_lhs <= a;
-            alu_rhs <= 0;
+            alu_rhs <= 1'b0;
             alu_op <= 4'b1011;
           end
           // M2 T4: RRA
           16'b0001111100000011: begin
             state <= {state[15:8], 8'h00};
             a <= alu_r;
-            zf <= 0;
-            nf <= 0;
-            hf <= 0;
+            zf <= 1'b0;
+            nf <= 1'b0;
+            hf <= 1'b0;
             cf <= alu_cf;
           end
 
           // M1 T3: JR CC
           16'b001xx00000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: JR CC
           16'b001xx00000000011: begin
@@ -875,14 +875,14 @@ module CPU
           16'b001xx00000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: JR CC
           16'b001xx00000000101: begin
             state <= {state[15:8], 8'h06};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             tmp <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: JR CC
           16'b001xx00000000110: begin
@@ -920,7 +920,7 @@ module CPU
           // M3 T4: JR CC
           16'b001xx00000001011: begin
             state <= {state[15:8], 8'h00};
-            if (tmp[7])
+            if (tmp[3'd7])
               pc <= pc + {8'hff, tmp};
             else
               pc <= pc + {8'h00, tmp};
@@ -929,7 +929,7 @@ module CPU
           // M1 T3: JR
           16'b0001100000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: JR
           16'b0001100000000011: begin
@@ -939,14 +939,14 @@ module CPU
           16'b0001100000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: JR
           16'b0001100000000101: begin
             state <= {state[15:8], 8'h06};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             tmp <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: JR
           16'b0001100000000110: begin
@@ -971,7 +971,7 @@ module CPU
           // M3 T4: JR
           16'b0001100000001011: begin
             state <= {state[15:8], 8'h00};
-            if (tmp[7])
+            if (tmp[3'd7])
               pc <= pc + {8'hff, tmp};
             else
               pc <= pc + {8'h00, tmp};
@@ -980,7 +980,7 @@ module CPU
           // M1 T3: LD (HL), d8
           16'b0011011000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD (HL), d8
           16'b0011011000000011: begin
@@ -998,26 +998,26 @@ module CPU
           // M2 T3: LD (HL), d8
           16'b0011011000000110: begin
             state <= {state[15:8], 8'h07};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T4: LD (HL), d8
           16'b0011011000000111: begin
             state <= {state[15:8], 8'h08};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             tmp <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T1: LD (HL), d8
           16'b0011011000001000: begin
             state <= {state[15:8], 8'h09};
             addr <= {h, l};
             data_out <= tmp;
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M3 T2: LD (HL), d8
           16'b0011011000001001: begin
             state <= {state[15:8], 8'h0a};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M3 T3: LD (HL), d8
           16'b0011011000001010: begin
@@ -1032,7 +1032,7 @@ module CPU
           // M1 T3: LD r8, d8
           16'b00xxx11000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD r8, d8
           16'b00xxx11000000011: begin
@@ -1042,7 +1042,7 @@ module CPU
           16'b00xxx11000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LD r8, d8
           16'b00xxx11000000101: begin
@@ -1055,7 +1055,7 @@ module CPU
               3'b101: l <= data_in;
               3'b111: a <= data_in;
             endcase
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             state <= {state[15:8], 8'h06};
           end
           // M2 T3: LD r8, d8
@@ -1065,12 +1065,12 @@ module CPU
           // M2 T4: LD r8, d8
           16'b00xxx11000000111: begin
             state <= {state[15:8], 8'h00};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
 
           // M1 T3: LD (C), A
           16'b1110001000000010: begin
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             state <= {state[15:8], 8'h03};
           end
           // M1 T3: LD (C), A
@@ -1082,12 +1082,12 @@ module CPU
             state <= {state[15:8], 8'h05};
             addr <= {8'hff, c};
             data_out <= a;
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M2 T2: LD (C), A
           16'b1110001000000101: begin
             state <= {state[15:8], 8'h06};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M2 T3: LD (C), A
           16'b1110001000000110: begin
@@ -1101,7 +1101,7 @@ module CPU
           // M1 T3: LD A, (C)
           16'b1111001000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T3: LD A, (C)
           16'b1111001000000011: begin
@@ -1111,13 +1111,13 @@ module CPU
           16'b1111001000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= {8'hff, c};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LD A, (C)
           16'b1111001000000101: begin
             state <= {state[15:8], 8'h06};
             a <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: LD A, (C)
           16'b1111001000000110: begin
@@ -1131,7 +1131,7 @@ module CPU
           // M1 T3: INC/DEC (HL)
           16'b0011010x00000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: INC/DEC (HL)
           16'b0011010x00000011: begin
@@ -1141,19 +1141,19 @@ module CPU
           16'b0011010x00000100: begin
             state <= {state[15:8], 8'h05};
             addr <= {h, l};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: INC/DEC (HL)
           16'b0011010x00000101: begin
             state <= {state[15:8], 8'h06};
             alu_lhs <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: INC/DEC (HL)
           16'b0011010x00000110: begin
             state <= {state[15:8], 8'h07};
             alu_rhs <= 8'h01;
-            alu_op <= state[8] ? 4'b0010 : 4'b0000;
+            alu_op <= state[4'd8] ? 4'b0010 : 4'b0000;
           end
           // M2 T4: INC/DEC (HL)
           16'b0011010x00000111: begin
@@ -1168,12 +1168,12 @@ module CPU
             state <= {state[15:8], 8'h09};
             addr <= {h, l};
             data_out <= z;
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M3 T2: INC/DEC (HL)
           16'b0011010x00001001: begin
             state <= {state[15:8], 8'h0a};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M3 T3: INC/DEC (HL)
           16'b0011010x00001010: begin
@@ -1186,9 +1186,9 @@ module CPU
 
           // M1 T3: INC/DEC r8
           16'b00xxx10x00000010: begin
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             state <= {state[15:8], 8'h03};
-            alu_op <= state[8] ? 4'b0010 : 4'b0000;
+            alu_op <= state[4'd8] ? 4'b0010 : 4'b0000;
             case (state[13:11])
               3'b000: alu_lhs <= b;
               3'b001: alu_lhs <= c;
@@ -1220,18 +1220,18 @@ module CPU
           // M1 T3: HALT
           16'b0111011000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: HALT
           16'b0111011000000011: begin
             state <= {state[15:8], 8'h00};
-            halted <= 1;
+            halted <= 1'b1;
           end
 
           // M1 T3: LD (HL), r8
           16'b01110xxx00000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD (HL), r8
           16'b01110xxx00000011: begin
@@ -1250,12 +1250,12 @@ module CPU
               3'b101: data_out <= l;
               3'b111: data_out <= a;
             endcase
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M2 T2: LD (HL), r8
           16'b01110xxx00000101: begin
             state <= {state[15:8], 8'h06};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M2 T3: LD (HL), r8
           16'b01110xxx00000110: begin
@@ -1269,7 +1269,7 @@ module CPU
           // M1 T3: LD r8, (HL)
           16'b01xxx11000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD r8, (HL)
           16'b01xxx11000000011: begin
@@ -1279,12 +1279,12 @@ module CPU
           16'b01xxx11000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= {h, l};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LD r8, (HL)
           16'b01xxx11000000101: begin
             state <= {state[15:8], 8'h06};
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             case (state[13:11])
               3'b000: b <= data_in;
               3'b001: c <= data_in;
@@ -1307,7 +1307,7 @@ module CPU
           // M1 T3: LD r8, r8
           16'b01xxxxxx00000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             case (state[10:8])
               3'b000: tmp <= b;
               3'b001: tmp <= c;
@@ -1335,7 +1335,7 @@ module CPU
           // M1 T3: LDH (a8), a
           16'b1110000000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LDH (a8), a
           16'b1110000000000011: begin
@@ -1345,13 +1345,13 @@ module CPU
           16'b1110000000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LDH (a8), a
           16'b1110000000000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: LDH (a8), a
           16'b1110000000000110: begin
@@ -1360,19 +1360,19 @@ module CPU
           // M2 T4: LDH (a8), a
           16'b1110000000000111: begin
             state <= {state[15:8], 8'h08};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T1: LDH (a8), a
           16'b1110000000001000: begin
             state <= {state[15:8], 8'h09};
             addr <= {8'hff, z};
             data_out <= a;
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M3 T2: LDH (a8), a
           16'b1110000000001001: begin
             state <= {state[15:8], 8'h0a};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M3 T3: LDH (a8), a
           16'b1110000000001010: begin
@@ -1386,7 +1386,7 @@ module CPU
           // M1 T3: LD A, (r16)
           16'b000x101000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD A, (r16)
           16'b000x101000000011: begin
@@ -1395,17 +1395,17 @@ module CPU
           // M2 T1: LD A, (r16)
           16'b000x101000000100: begin
             state <= {state[15:8], 8'h05};
-            case (state[12])
+            case (state[4'd12])
               1'b0: addr <= {b, c};
               1'b1: addr <= {d, e};
             endcase
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LD A, (r16)
           16'b000x101000000101: begin
             state <= {state[15:8], 8'h06};
             a <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: LD A, (r16)
           16'b000x101000000110: begin
@@ -1419,7 +1419,7 @@ module CPU
           // M1 T3: CALL
           16'b1100110100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: CALL
           16'b1100110100000011: begin
@@ -1429,13 +1429,13 @@ module CPU
           16'b1100110100000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: CALL
           16'b1100110100000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: CALL
           16'b1100110100000110: begin
@@ -1444,19 +1444,19 @@ module CPU
           // M2 T4: CALL
           16'b1100110100000111: begin
             state <= {state[15:8], 8'h08};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T1: CALL
           16'b1100110100001000: begin
             state <= {state[15:8], 8'h09};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: CALL
           16'b1100110100001001: begin
             state <= {state[15:8], 8'h0a};
             w <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: CALL
           16'b1100110100001010: begin
@@ -1465,12 +1465,12 @@ module CPU
           // M3 T4: CALL
           16'b1100110100001011: begin
             state <= {state[15:8], 8'h0c};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T3: CALL cc
           16'b110xx10000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: CALL cc
           16'b110xx10000000011: begin
@@ -1480,13 +1480,13 @@ module CPU
           16'b110xx10000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: CALL cc
           16'b110xx10000000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: CALL cc
           16'b110xx10000000110: begin
@@ -1495,19 +1495,19 @@ module CPU
           // M2 T4: CALL cc
           16'b110xx10000000111: begin
             state <= {state[15:8], 8'h08};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T1: CALL cc
           16'b110xx10000001000: begin
             state <= {state[15:8], 8'h09};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: CALL cc
           16'b110xx10000001001: begin
             state <= {state[15:8], 8'h0a};
             w <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: CALL cc
           16'b110xx10000001010: begin
@@ -1516,7 +1516,7 @@ module CPU
           // M3 T4: CALL cc
           16'b110xx10000001011: begin
             state <= {state[15:8], 8'h0c};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             case (state[12:11])
               2'b00: begin
                 state <= {8'b11001101, zf ? 8'h00 : 8'h0c};
@@ -1543,7 +1543,7 @@ module CPU
           // M4 T3: CALL + CALL cc
           16'b1100110100001110: begin
             state <= {state[15:8], 8'h0f};
-            sp <= sp - 1;
+            sp <= sp + 16'hffff;
           end
           // M4 T4: CALL + CALL cc
           16'b1100110100001111: begin
@@ -1554,17 +1554,17 @@ module CPU
             state <= {state[15:8], 8'h11};
             addr <= sp;
             data_out <= pc[15:8];
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M5 T2: CALL + CALL cc
           16'b1100110100010001: begin
             state <= {state[15:8], 8'h12};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M5 T3: CALL + CALL cc
           16'b1100110100010010: begin
             state <= {state[15:8], 8'h13};
-            sp <= sp - 1;
+            sp <= sp + 16'hffff;
           end
           // M5 T4: CALL + CALL cc
           16'b1100110100010011: begin
@@ -1576,12 +1576,12 @@ module CPU
             state <= {state[15:8], 8'h15};
             addr <= sp;
             data_out <= pc[7:0];
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M6 T2: CALL + CALL cc
           16'b1100110100010101: begin
             state <= {state[15:8], 8'h16};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M6 T3: CALL + CALL cc
           16'b1100110100010110: begin
@@ -1596,7 +1596,7 @@ module CPU
           // M1 T3: PUSH r16
           16'b11xx010100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: PUSH r16
           16'b11xx010100000011: begin
@@ -1613,7 +1613,7 @@ module CPU
           // M2 T3: PUSH r16
           16'b11xx010100000110: begin
             state <= {state[15:8], 8'h07};
-            sp <= sp - 1;
+            sp <= sp + 16'hffff;
           end
           // M2 T4: PUSH r16
           16'b11xx010100000111: begin
@@ -1629,17 +1629,17 @@ module CPU
               2'b10: data_out <= h;
               2'b11: data_out <= a;
             endcase
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M3 T2: PUSH r16
           16'b11xx010100001001: begin
             state <= {state[15:8], 8'h0a};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M3 T3: PUSH r16
           16'b11xx010100001010: begin
             state <= {state[15:8], 8'h0b};
-            sp <= sp - 1;
+            sp <= sp + 16'hffff;
           end
           // M3 T4: PUSH r16
           16'b11xx010100001011: begin
@@ -1655,12 +1655,12 @@ module CPU
               2'b10: data_out <= l;
               2'b11: data_out <= { zf, nf, hf, cf, 4'h0 };
             endcase
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M4 T2: PUSH r16
           16'b11xx010100001101: begin
             state <= {state[15:8], 8'h0e};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M4 T3: PUSH r16
           16'b11xx010100001110: begin
@@ -1674,7 +1674,7 @@ module CPU
           // M1 T3: POP r16
           16'b11xx000100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: POP r16
           16'b11xx000100000011: begin
@@ -1684,12 +1684,12 @@ module CPU
           16'b11xx000100000100: begin
             state <= {state[15:8], 8'h05};
             addr <= sp;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: POP r16
           16'b11xx000100000101: begin
             state <= {state[15:8], 8'h06};
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             case (state[13:12])
               2'b00: c <= data_in;
               2'b01: e <= data_in;
@@ -1700,7 +1700,7 @@ module CPU
           // M2 T3: POP r16
           16'b11xx000100000110: begin
             state <= {state[15:8], 8'h07};
-            sp <= sp + 1;
+            sp <= sp + 1'b1;
           end
           // M2 T4: POP r16
           16'b11xx000100000111: begin
@@ -1710,12 +1710,12 @@ module CPU
           16'b11xx000100001000: begin
             state <= {state[15:8], 8'h09};
             addr <= sp;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: POP r16
           16'b11xx000100001001: begin
             state <= {state[15:8], 8'h0a};
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             case (state[13:12])
               2'b00: b <= data_in;
               2'b01: d <= data_in;
@@ -1726,7 +1726,7 @@ module CPU
           // M3 T3: POP r16
           16'b11xx000100001010: begin
             state <= {state[15:8], 8'h0b};
-            sp <= sp + 1;
+            sp <= sp + 1'b1;
           end
           // M3 T4: POP r16
           16'b11xx000100001011: begin
@@ -1736,7 +1736,7 @@ module CPU
           // M1 T3: INC/DEC r16
           16'b00xxx01100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: INC/DEC r16
           16'b00xxx01100000011: begin
@@ -1753,19 +1753,19 @@ module CPU
           // M2 T3: INC/DEC r16
           16'b00xxx01100000110: begin
             state <= {state[15:8], 8'h07};
-            if (state[11]) begin
+            if (state[4'd11]) begin
               case (state[13:12])
-                2'b00: {b, c} <= {b, c} - 1;
-                2'b01: {d, e} <= {d, e} - 1;
-                2'b10: {h, l} <= {h, l} - 1;
-                2'b11: sp <= sp - 1;
+                2'b00: {b, c} <= {b, c} + 16'hffff;
+                2'b01: {d, e} <= {d, e} + 16'hffff;
+                2'b10: {h, l} <= {h, l} + 16'hffff;
+                2'b11: sp <= sp + 16'hffff;
               endcase
             end else begin
               case (state[13:12])
-                2'b00: {b, c} <= {b, c} + 1;
-                2'b01: {d, e} <= {d, e} + 1;
-                2'b10: {h, l} <= {h, l} + 1;
-                2'b11: sp <= sp + 1;
+                2'b00: {b, c} <= {b, c} + 16'h0001;
+                2'b01: {d, e} <= {d, e} + 16'h0001;
+                2'b10: {h, l} <= {h, l} + 16'h0001;
+                2'b11: sp <= sp + 16'h0001;
               endcase
             end
           end
@@ -1777,7 +1777,7 @@ module CPU
           // M1 T3: RET cc
           16'b110xx00000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: RET cc
           16'b110xx00000000011: begin
@@ -1816,7 +1816,7 @@ module CPU
           // M1 T3: RET
           16'b110x100100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: RET
           16'b110x100100000011: begin
@@ -1826,40 +1826,40 @@ module CPU
           16'b110x100100000100: begin
             state <= {state[15:8], 8'h05};
             addr <= sp;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: RET
           16'b110x100100000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: RET
           16'b110x100100000110: begin
             state <= {state[15:8], 8'h07};
-            sp <= sp + 1;
+            sp <= sp + 16'h0001;
           end
           // M2 T4: RET
           16'b110x100100000111: begin
             state <= {state[15:8], 8'h08};
-            ime <= state[12] ? 1'b1 : ime;
+            ime <= state[4'd12] ? 1'b1 : ime;
           end
           // M3 T1: RET
           16'b110x100100001000: begin
             state <= {state[15:8], 8'h09};
             addr <= sp;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: RET
           16'b110x100100001001: begin
             state <= {state[15:8], 8'h0a};
             w <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: RET
           16'b110x100100001010: begin
             state <= {state[15:8], 8'h0b};
-            sp <= sp + 1;
+            sp <= sp + 16'h0001;
           end
           // M3 T4: RET
           16'b110x100100001011: begin
@@ -1886,7 +1886,7 @@ module CPU
           // M1 T3: ALU d8
           16'b11xxx11000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: ALU d8
           16'b11xxx11000000011: begin
@@ -1896,13 +1896,13 @@ module CPU
           16'b11xxx11000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: ALU d8
           16'b11xxx11000000101: begin
             state <= {state[15:8], 8'h06};
             alu_rhs <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             alu_lhs <= a;
             alu_op <= state[13:11];
           end
@@ -1918,13 +1918,13 @@ module CPU
           // M2 T4: ALU d8
           16'b11xxx11000000111: begin
             state <= {state[15:8], 8'h00};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
 
           // M1 T3: LD (d16), a
           16'b1110101000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T3: LD (d16), a
           16'b1110101000000011: begin
@@ -1934,13 +1934,13 @@ module CPU
           16'b1110101000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LD (d16), a
           16'b1110101000000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: LD (d16), a
           16'b1110101000000110: begin
@@ -1949,19 +1949,19 @@ module CPU
           // M2 T4: LD (d16), a
           16'b1110101000000111: begin
             state <= {state[15:8], 8'h08};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T1: LD (d16), a
           16'b1110101000001000: begin
             state <= {state[15:8], 8'h09};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: LD (d16), a
           16'b1110101000001001: begin
             state <= {state[15:8], 8'h0a};
             w <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: LD (d16), a
           16'b1110101000001010: begin
@@ -1970,19 +1970,19 @@ module CPU
           // M3 T4: LD (d16), a
           16'b1110101000001011: begin
             state <= {state[15:8], 8'h0c};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M4 T1: LD (d16), a
           16'b1110101000001100: begin
             state <= {state[15:8], 8'h0d};
             addr <= {w, z};
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
             data_out <= a;
           end
           // M4 T2: LD (d16), a
           16'b1110101000001101: begin
             state <= {state[15:8], 8'h0e};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M4 T3: LD (d16), a
           16'b1110101000001110: begin
@@ -1996,7 +1996,7 @@ module CPU
           // M1 T3: LHD A, (d8)
           16'b1111000000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LHD A, (d8)
           16'b1111000000000011: begin
@@ -2006,13 +2006,13 @@ module CPU
           16'b1111000000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LHD A, (d8)
           16'b1111000000000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: LHD A, (d8)
           16'b1111000000000110: begin
@@ -2021,19 +2021,19 @@ module CPU
           // M2 T4: LHD A, (d8)
           16'b1111000000000111: begin
             state <= {state[15:8], 8'h08};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T1: LHD A, (d8)
           16'b1111000000001000: begin
             state <= {state[15:8], 8'h09};
             addr <= {8'hff, z};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: LHD A, (d8)
           16'b1111000000001001: begin
             state <= {state[15:8], 8'h0a};
             a <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: LHD A, (d8)
           16'b1111000000001010: begin
@@ -2047,7 +2047,7 @@ module CPU
           // M1 T3: NOP
           16'b0000000000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: NOP
           16'b0000000000000011: begin
@@ -2057,7 +2057,7 @@ module CPU
           // M1 T3:  JP
           16'b1100001100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4:  JP
           16'b1100001100000011: begin
@@ -2067,30 +2067,30 @@ module CPU
           16'b1100001100000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2:  JP
           16'b1100001100000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3:  JP
           16'b1100001100000110: begin
             state <= {state[15:8], 8'h07};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T4:  JP
           16'b1100001100000111: begin
             state <= {state[15:8], 8'h08};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T1:  JP
           16'b1100001100001000: begin
             state <= {state[15:8], 8'h09};
             w <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T2:  JP
           16'b1100001100001001: begin
@@ -2099,7 +2099,7 @@ module CPU
           // M3 T3:  JP
           16'b1100001100001010: begin
             state <= {state[15:8], 8'h0b};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T4:  JP
           16'b1100001100001011: begin
@@ -2126,7 +2126,7 @@ module CPU
           // M1 T3:  JP cc
           16'b110xx01000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4:  JP cc
           16'b110xx01000000011: begin
@@ -2136,30 +2136,30 @@ module CPU
           16'b110xx01000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2:  JP cc
           16'b110xx01000000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3:  JP cc
           16'b110xx01000000110: begin
             state <= {state[15:8], 8'h07};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T4:  JP cc
           16'b110xx01000000111: begin
             state <= {state[15:8], 8'h08};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T1:  JP cc
           16'b110xx01000001000: begin
             state <= {state[15:8], 8'h09};
             w <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T2:  JP cc
           16'b110xx01000001001: begin
@@ -2168,7 +2168,7 @@ module CPU
           // M3 T3:  JP cc
           16'b110xx01000001010: begin
             state <= {state[15:8], 8'h0b};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T4:  JP cc
           16'b110xx01000001011: begin
@@ -2208,7 +2208,7 @@ module CPU
           // M1 T3:  LD (r16), A
           16'b000x001000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4:  LD (r16), A
           16'b000x001000000011: begin
@@ -2217,14 +2217,14 @@ module CPU
           // M2 T1:  LD (r16), A
           16'b000x001000000100: begin
             state <= {state[15:8], 8'h05};
-            addr <= state[12] ? {d, e} : {b, c};
+            addr <= state[4'd12] ? {d, e} : {b, c};
             data_out <= a;
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M2 T2:  LD (r16), A
           16'b000x001000000101: begin
             state <= {state[15:8], 8'h06};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M2 T3:  LD (r16), A
           16'b000x001000000110: begin
@@ -2238,18 +2238,18 @@ module CPU
           // M1 T3:  DI/EI
           16'b1111x01100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4:  DI/EI
           16'b1111x01100000011: begin
             state <= {state[15:8], 8'h00};
-            ime <= state[11];
+            ime <= state[4'd11];
           end
 
           // M1 T3: LD A, (d16)
           16'b1111101000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD A, (d16)
           16'b1111101000000011: begin
@@ -2259,13 +2259,13 @@ module CPU
           16'b1111101000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LD A, (d16)
           16'b1111101000000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: LD A, (d16)
           16'b1111101000000110: begin
@@ -2274,19 +2274,19 @@ module CPU
           // M2 T4: LD A, (d16)
           16'b1111101000000111: begin
             state <= {state[15:8], 8'h08};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T1: LD A, (d16)
           16'b1111101000001000: begin
             state <= {state[15:8], 8'h09};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: LD A, (d16)
           16'b1111101000001001: begin
             state <= {state[15:8], 8'h0a};
             w <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: LD A, (d16)
           16'b1111101000001010: begin
@@ -2295,19 +2295,19 @@ module CPU
           // M3 T4: LD A, (d16)
           16'b1111101000001011: begin
             state <= {state[15:8], 8'h0c};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M4 T1: LD A, (d16)
           16'b1111101000001100: begin
             state <= {state[15:8], 8'h0d};
             addr <= {w, z};
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M4 T2: LD A, (d16)
           16'b1111101000001101: begin
             state <= {state[15:8], 8'h0e};
             a <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M4 T3: LD A, (d16)
           16'b1111101000001110: begin
@@ -2321,7 +2321,7 @@ module CPU
           // M1 T3: LD (d16), SP
           16'b0000100000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD (d16), SP
           16'b0000100000000011: begin
@@ -2331,13 +2331,13 @@ module CPU
           16'b0000100000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: LD (d16), SP
           16'b0000100000000101: begin
             state <= {state[15:8], 8'h06};
             z <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M2 T3: LD (d16), SP
           16'b0000100000000110: begin
@@ -2346,19 +2346,19 @@ module CPU
           // M2 T4: LD (d16), SP
           16'b0000100000000111: begin
             state <= {state[15:8], 8'h08};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M3 T1: LD (d16), SP
           16'b0000100000001000: begin
             state <= {state[15:8], 8'h09};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M3 T2: LD (d16), SP
           16'b0000100000001001: begin
             state <= {state[15:8], 8'h0a};
             w <= data_in;
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
           end
           // M3 T3: LD (d16), SP
           16'b0000100000001010: begin
@@ -2367,19 +2367,19 @@ module CPU
           // M3 T4: LD (d16), SP
           16'b0000100000001011: begin
             state <= {state[15:8], 8'h0c};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M4 T1: LD (d16), SP
           16'b0000100000001100: begin
             state <= {state[15:8], 8'h0d};
             addr <= {w, z};
             data_out <= sp[7:0];
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M4 T2: LD (d16), SP
           16'b0000100000001101: begin
             state <= {state[15:8], 8'h0e};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M4 T3: LD (d16), SP
           16'b0000100000001110: begin
@@ -2395,12 +2395,12 @@ module CPU
             state <= {state[15:8], 8'h11};
             addr <= {w, z};
             data_out <= sp[15:8];
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M5 T2: LD (d16), SP
           16'b0000100000010001: begin
             state <= {state[15:8], 8'h12};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M5 T3: LD (d16), SP
           16'b0000100000010010: begin
@@ -2414,7 +2414,7 @@ module CPU
           // M1 T3: ADD HL, r16
           16'b00xx100100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             alu_lhs <= l;
           end
           // M1 T4: ADD HL, r16
@@ -2474,7 +2474,7 @@ module CPU
           // M1 T3: LD SP, HL
           16'b1111100100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: LD SP, HL
           16'b1111100100000011: begin
@@ -2501,7 +2501,7 @@ module CPU
           // M1 T3: RST
           16'b11xxx11100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: RST
           16'b11xxx11100000011: begin
@@ -2518,7 +2518,7 @@ module CPU
           // M2 T3: RST
           16'b11xxx11100000110: begin
             state <= {state[15:8], 8'h07};
-            sp <= sp - 1;
+            sp <= sp + 16'hffff;
           end
           // M2 T4: RST
           16'b11xxx11100000111: begin
@@ -2529,17 +2529,17 @@ module CPU
             state <= {state[15:8], 8'h09};
             addr <= sp;
             data_out <= pc[15:8];
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M3 T2: RST
           16'b11xxx11100001001: begin
             state <= {state[15:8], 8'h0a};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M3 T3: RST
           16'b11xxx11100001010: begin
             state <= {state[15:8], 8'h0b};
-            sp <= sp - 1;
+            sp <= sp + 16'hffff;
           end
           // M3 T4: RST
           16'b11xxx11100001011: begin
@@ -2551,12 +2551,12 @@ module CPU
             state <= {state[15:8], 8'h0d};
             addr <= sp;
             data_out <= pc[7:0];
-            wr_enable <= 1;
+            wr_enable <= 1'b1;
           end
           // M4 T2: RST
           16'b11xxx11100001101: begin
             state <= {state[15:8], 8'h0e};
-            wr_enable <= 0;
+            wr_enable <= 1'b0;
           end
           // M4 T3: RST
           16'b11xxx11100001110: begin
@@ -2571,46 +2571,46 @@ module CPU
           // M1 T3: CPL
           16'b0010111100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: CPL
           16'b0010111100000011: begin
             state <= {state[15:8], 8'h00};
             a <= ~a;
-            nf <= 1;
-            hf <= 1;
+            nf <= 1'b1;
+            hf <= 1'b1;
           end
 
           // M1 T3: CCF
           16'b0011111100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: CCF
           16'b0011111100000011: begin
             state <= {state[15:8], 8'h00};
-            nf <= 0;
-            hf <= 0;
+            nf <= 1'b0;
+            hf <= 1'b0;
             cf <= !cf;
           end
 
           // M1 T3: SCF
           16'b0011011100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: SCF
           16'b0011011100000011: begin
             state <= {state[15:8], 8'h00};
-            nf <= 0;
-            hf <= 0;
-            cf <= 1;
+            nf <= 1'b0;
+            hf <= 1'b0;
+            cf <= 1'b1;
           end
 
           // M1 T3: ADD SP, r8
           16'b1110100000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: ADD SP, r8
           16'b1110100000000011: begin
@@ -2620,12 +2620,12 @@ module CPU
           16'b1110100000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: ADD SP, r8
           16'b1110100000000101: begin
             state <= {state[15:8], 8'h06};
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             alu_lhs <= sp[7:0];
             alu_rhs <= data_in;
             alu_op <= 4'b0000;
@@ -2633,14 +2633,14 @@ module CPU
           // M2 T3: ADD SP, r8
           16'b1110100000000110: begin
             state <= {state[15:8], 8'h07};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T4: ADD SP, r8
           16'b1110100000000111: begin
             state <= {state[15:8], 8'h08};
             sp <= {sp[15:8], alu_r};
-            zf <= 0;
-            nf <= 0;
+            zf <= 1'b0;
+            nf <= 1'b0;
             hf <= alu_hf;
             cf <= alu_cf;
           end
@@ -2648,7 +2648,7 @@ module CPU
           16'b1110100000001000: begin
             state <= {state[15:8], 8'h09};
             alu_lhs <= sp[15:8];
-            alu_rhs <= alu_rhs[7] ? 8'hff : 8'h00;
+            alu_rhs <= alu_rhs[3'd7] ? 8'hff : 8'h00;
             alu_op <= 4'b0001;
           end
           // M3 T2: ADD SP, r8
@@ -2684,7 +2684,7 @@ module CPU
           // M1 T3: ADD HL, SP+r8
           16'b1111100000000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M1 T4: ADD HL, SP+r8
           16'b1111100000000011: begin
@@ -2694,12 +2694,12 @@ module CPU
           16'b1111100000000100: begin
             state <= {state[15:8], 8'h05};
             addr <= pc;
-            rd_enable <= 1;
+            rd_enable <= 1'b1;
           end
           // M2 T2: ADD HL, SP+r8
           16'b1111100000000101: begin
             state <= {state[15:8], 8'h06};
-            rd_enable <= 0;
+            rd_enable <= 1'b0;
             alu_lhs <= sp[7:0];
             alu_rhs <= data_in;
             alu_op <= 4'b0000;
@@ -2707,14 +2707,14 @@ module CPU
           // M2 T3: ADD HL, SP+r8
           16'b1111100000000110: begin
             state <= {state[15:8], 8'h07};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
           end
           // M2 T4: ADD HL, SP+r8
           16'b1111100000000111: begin
             state <= {state[15:8], 8'h08};
             l <= alu_r;
-            zf <= 0;
-            nf <= 0;
+            zf <= 1'b0;
+            nf <= 1'b0;
             hf <= alu_hf;
             cf <= alu_cf;
           end
@@ -2722,7 +2722,7 @@ module CPU
           16'b1111100000001000: begin
             state <= {state[15:8], 8'h09};
             alu_lhs <= sp[15:8];
-            alu_rhs <= alu_rhs[7] ? 8'hff : 8'h00;
+            alu_rhs <= alu_rhs[3'd7] ? 8'hff : 8'h00;
             alu_op <= 4'b0001;
           end
           // M3 T2: ADD HL, SP+r8
@@ -2742,7 +2742,7 @@ module CPU
           // M3 T3: DAA
           16'b0010011100000010: begin
             state <= {state[15:8], 8'h03};
-            pc <= pc + 1;
+            pc <= pc + 16'd1;
             if (nf) begin
               if (cf && hf) begin
                 a <= a + 8'h9a;
@@ -2753,7 +2753,7 @@ module CPU
               end
             end else begin
               if (cf || a > 8'h99) begin
-                cf <= 1;
+                cf <= 1'b1;
                 if (hf || a[3:0] > 4'h9)
                   a <= a + 8'h66;
                 else
@@ -2768,8 +2768,8 @@ module CPU
           // M3 T4: DAA
           16'b0010011100000011: begin
             state <= {state[15:8], 8'h00};
-            zf <= a == 0;
-            hf <= 0;
+            zf <= a == 8'h00;
+            hf <= 1'b0;
           end
         endcase
       end

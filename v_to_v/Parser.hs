@@ -256,12 +256,10 @@ expr = try ternary <|> or
       [ (lparen *> expr <* rparen)
       , consExpr
       , (Const <$> value)
-      , intExpr
       , identExpr
       ]
 
     identExpr = Ident <$> identifier
-    intExpr = Int <$> decimal
 
     consExpr = do
       lbrace
