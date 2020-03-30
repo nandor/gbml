@@ -11,8 +11,6 @@ import Text.ParserCombinators.Parsec.Combinator
 import Text.ParserCombinators.Parsec.Prim
 import Text.ParserCombinators.Parsec.Error
 
-import Debug.Trace
-
 import AST
 
 

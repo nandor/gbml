@@ -55,38 +55,77 @@ module CPU
   wire[4:0] daa_lo;
   wire[4:0] daa_hi;
 
-  ALU alu
-    ( alu_lhs
-    , alu_rhs
-    , alu_op
-    , alu_r
-    , zf, nf, hf, cf
-    , alu_zf, alu_nf, alu_hf, alu_cf
-    );
+  // Arithmetic and Logical Unit.
+  wire [4:0] half_add = alu_lhs[3:0] + alu_rhs[3:0];
+  wire [4:0] full_add = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_add[4]};
+  wire [4:0] half_adc = alu_lhs[3:0] + alu_rhs[3:0] + {3'b000, cf};
+  wire [4:0] full_adc = alu_lhs[7:4] + alu_rhs[7:4] + {3'b000, half_adc[4]};
+  wire [4:0] half_sub = alu_lhs[3:0] - alu_rhs[3:0];
+  wire [4:0] full_sub = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sub[4]};
+  wire [4:0] half_sbc = alu_lhs[3:0] - alu_rhs[3:0] - {3'b000, cf};
+  wire [4:0] full_sbc = alu_lhs[7:4] - alu_rhs[7:4] - {3'b000, half_sbc[4]};
 
+  assign alu_zf = !(|alu_r);
+  assign alu_nf = 4'b0010 == alu_op || 4'b0011 == alu_op || 4'b0111 == alu_op;
+
+  assign alu_hf =
+      4'b0000 == alu_op ? half_add[4] :
+      4'b0001 == alu_op ? half_adc[4] :
+      4'b0010 == alu_op ? half_sub[4] :
+      4'b0011 == alu_op ? half_sbc[4] :
+      4'b0100 == alu_op ? 1'b1 :
+      4'b0111 == alu_op ? half_sub[4] :
+      4'b1000 == alu_op ? 1'b0 :
+      4'b1001 == alu_op ? 1'b0 :
+      4'b1010 == alu_op ? 1'b0 :
+      4'b1011 == alu_op ? 1'b0 :
+      4'b1100 == alu_op ? 1'b0 :
+      4'b1101 == alu_op ? 1'b0 :
+      4'b1110 == alu_op ? 1'b0 :
+                          1'b0;
+
+  assign alu_r =
+      4'b0000 == alu_op ? {full_add[3:0], half_add[3:0]} :
+      4'b0001 == alu_op ? {full_adc[3:0], half_adc[3:0]} :
+      4'b0010 == alu_op ? {full_sub[3:0], half_sub[3:0]} :
+      4'b0011 == alu_op ? {full_sbc[3:0], half_sbc[3:0]} :
+      4'b0100 == alu_op ? alu_lhs & alu_rhs :
+      4'b0101 == alu_op ? alu_lhs ^ alu_rhs :
+      4'b0110 == alu_op ? alu_lhs | alu_rhs :
+      4'b0111 == alu_op ? alu_lhs :
+      4'b1000 == alu_op ? { alu_lhs[6:0], alu_lhs[7] } :
+      4'b1001 == alu_op ? { alu_lhs[0], alu_lhs[7:1] } :
+      4'b1010 == alu_op ? { alu_lhs[6:0], cf } :
+      4'b1011 == alu_op ? { cf, alu_lhs[7:1] } :
+      4'b1100 == alu_op ? { alu_lhs[6:0], 1'b0 } :
+      4'b1101 == alu_op ? { alu_lhs[7], alu_lhs[7:1] } :
+      4'b1110 == alu_op ? { alu_lhs[3:0], alu_lhs[7:4]} :
+                          { 1'b0, alu_lhs[7:1] };
+
+  // Main processor state machine.
   always @(posedge clk) begin
     if (rst) begin
-      state     <= 0;
-      zf        <= 0;
-      nf        <= 0;
-      hf        <= 0;
-      cf        <= 0;
-      pc        <= 0;
-      sp        <= 0;
-      b         <= 0;
-      c         <= 0;
-      d         <= 0;
-      e         <= 0;
-      h         <= 0;
-      l         <= 0;
-      a         <= 0;
-      ime       <= 0;
-      halted    <= 0;
-      int_clear <= 0;
-      int_state <= 0;
+      state     <= 16'h0000;
+      zf        <= 1'b0;
+      nf        <= 1'b0;
+      hf        <= 1'b0;
+      cf        <= 1'b0;
+      pc        <= 16'h0000;
+      sp        <= 16'h0000;
+      b         <= 8'h00;
+      c         <= 8'h00;
+      d         <= 8'h00;
+      e         <= 8'h00;
+      h         <= 8'h00;
+      l         <= 8'h00;
+      a         <= 8'h00;
+      ime       <= 1'b0;
+      halted    <= 1'b0;
+      int_clear <= 1'b0;
+      int_state <= 1'b0;
     end else begin
       if (halted && |int_pending) begin
-        halted <= 0;
+        halted <= 1'b0;
       end
 
       if (int_state || (int_pending && state[7:0] == 8'h00 && ime)) begin
@@ -94,7 +133,7 @@ module CPU
           // M1 T1: INT
           5'h00: begin
             int_state <= 5'h01;
-            ime <= 0;
+            ime <= 1'b0;
           end
           // M1 T2: INT
           5'h01: begin

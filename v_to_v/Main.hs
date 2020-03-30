@@ -4,9 +4,12 @@
 
 module Main where
 
+import Control.Monad
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
+
+import Debug.Trace
 
 import Parser
 

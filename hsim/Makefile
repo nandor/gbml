@@ -4,7 +4,7 @@
 
 all: gbsim.vvp gbenv.vpi
 
-gbsim.vvp: alu.v mmu.v timer.v system.v cpu.v
+gbsim.vvp: mmu.v timer.v system.v cpu.v
 	iverilog -o$@ -g2012 $^
 
 gbenv.vpi: gbenv.cpp cart.cpp gpu.cpp input.cpp
