@@ -15,11 +15,38 @@ data Parameter
   = Parameter Type Bool Integer String
   deriving (Show)
 
+data Digit
+  = DC
+  | HI
+  | D Integer
+  deriving (Show)
+
+data Value
+  = Value Integer Integer [Digit]
+  deriving (Show)
+
 data Expr
-  = Add Expr Expr
+  = Ternary Expr Expr Expr
+  | Or Expr Expr
+  | And Expr Expr
+  | BitOr Expr Expr
+  | BitAnd Expr Expr
+  | BitXor Expr Expr
+  | Gt Expr Expr
+  | Eq Expr Expr
+  | Ne Expr Expr
+  | Shl Expr Expr
+  | Add Expr Expr
   | Sub Expr Expr
-  | Range Integer Integer
+  | Not Expr
+  | Inv Expr
+  | HorzOr Expr
+  | Range Expr Integer Integer
+  | Index Expr Expr
   | Cons [Expr]
+  | Ident String
+  | Const Value
+  | Int Integer
   deriving (Show)
 
 data Edge
@@ -28,10 +55,22 @@ data Edge
   | All
   deriving (Eq, Show)
 
+data CaseKind
+  = Case | CaseX | CaseZ
+  deriving (Show)
+
+data Statement
+  = Block [Statement]
+  | Switch CaseKind Expr [(Value, Statement)]
+  | If Expr Statement (Maybe Statement)
+  | NonBlocking [String] Expr
+  deriving (Show)
+
 data Item
   = RegDecl String Integer
   | WireDecl String Integer (Maybe Expr)
-  | AlwaysBlock [String]
+  | Always [(Edge, Expr)] Statement
+  | Instance String String [Expr]
   deriving (Show)
 
 data Module

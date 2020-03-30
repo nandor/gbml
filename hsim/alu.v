@@ -29,7 +29,7 @@ module ALU
   wire [4:0] half_sbc = lhs[3:0] - rhs[3:0] - {3'b000, cf_in};
   wire [4:0] full_sbc = lhs[7:4] - rhs[7:4] - {3'b000, half_sbc[4]};
 
-  always @* begin
+  always @*
     case (op)
       // ADD
       4'b0000: begin
@@ -160,5 +160,4 @@ module ALU
         cf_out <= lhs[0];
       end
     endcase
-  end
 endmodule
