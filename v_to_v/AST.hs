@@ -8,12 +8,7 @@ module AST where
 data Type
   = In
   | Out
-  | InOut
   deriving (Eq, Show)
-
-data Parameter
-  = Parameter Type Bool Integer String
-  deriving (Show)
 
 data Digit
   = X
@@ -61,9 +56,9 @@ data CaseKind
 
 data Statement
   = Block [Statement]
-  | Switch CaseKind Expr [(Value, Statement)]
+  | Switch CaseKind String [(Value, Statement)]
   | If Expr Statement (Maybe Statement)
-  | NonBlocking [String] Expr
+  | NonBlocking String Expr
   deriving (Show)
 
 data Item
@@ -71,6 +66,10 @@ data Item
   | WireDecl String Integer
   | Always [(Edge, Expr)] Statement
   | Assign String Expr
+  deriving (Show)
+
+data Parameter
+  = Parameter Type Bool Integer String
   deriving (Show)
 
 data Module

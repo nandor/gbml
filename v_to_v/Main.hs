@@ -9,8 +9,7 @@ import System.Console.GetOpt
 import System.Environment
 import System.Exit
 
-import Debug.Trace
-
+import Translate
 import Parser
 
 
@@ -47,7 +46,7 @@ main = do
           putStrLn (show err)
           exitWith (ExitFailure 1)
         Right ast ->
-          putStrLn (show ast)
+          putStrLn (show (translate ast))
     (_, files, errs) -> do
       putStrLn (concat errs ++ usageInfo "v_to_v [ARGS] INPUT" options)
       exitWith (ExitFailure 255)

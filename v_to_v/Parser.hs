@@ -25,7 +25,6 @@ keywords =
   , "endcase"
   , "endmodule"
   , "if"
-  , "inout"
   , "input"
   , "module"
   , "negedge"
@@ -107,7 +106,7 @@ busWidth =
     colon
     _ <- digit
     rbracket
-    return bits
+    return (bits + 1)
 
 value :: GenParser Char st Value
 value = lexeme . try $ do
@@ -307,7 +306,7 @@ statement = msum
         , keyword "casez" *> return CaseZ
         ]
       lparen
-      cond <- expr
+      cond <- identifier
       rparen
       cases <- many1 $ do
         val <- value
@@ -327,15 +326,11 @@ statement = msum
       return $ If cond branchTrue branchFalse
 
     nonBlockingStatement = do
-      pattern <- ((:[]) <$> identifier) <|> do
-        lbrace
-        idents <- commaSep identifier
-        rbrace
-        return idents
+      target <- identifier
       symbol "<="
       value <- expr
       semi
-      return $ NonBlocking pattern value
+      return $ NonBlocking target value
 
 itemRegDecl :: GenParser Char st Item
 itemRegDecl = do
@@ -393,7 +388,6 @@ topmod = do
     ty <- msum $
       [ keyword "input"  *> return In
       , keyword "output" *> return Out
-      , keyword "inout"  *> return InOut
       ]
     reg <- option False (keyword "reg" *> return True)
     bits <- busWidth
