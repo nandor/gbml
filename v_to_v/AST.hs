@@ -50,13 +50,9 @@ data Edge
   | All
   deriving (Eq, Show)
 
-data CaseKind
-  = Case | CaseX | CaseZ
-  deriving (Show)
-
 data Statement
   = Block [Statement]
-  | Switch CaseKind String [(Value, Statement)]
+  | CaseZ Expr [(Value, Statement)]
   | If Expr Statement (Maybe Statement)
   | NonBlocking String Expr
   deriving (Show)

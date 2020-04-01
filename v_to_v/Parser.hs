@@ -300,13 +300,9 @@ statement = msum
       return $ Block stmts
 
     switchStatement = do
-      kind <- msum
-        [ keyword "case" *> return Case
-        , keyword "casex" *> return CaseX
-        , keyword "casez" *> return CaseZ
-        ]
+      keyword "casez"
       lparen
-      cond <- identifier
+      cond <- expr
       rparen
       cases <- many1 $ do
         val <- value
@@ -314,7 +310,7 @@ statement = msum
         body <- statement
         return (val, body)
       keyword "endcase"
-      return $ Switch kind cond cases
+      return $ CaseZ cond cases
 
     ifElseStatement = do
       keyword "if"

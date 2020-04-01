@@ -13,6 +13,9 @@ import qualified VM
 import Debug.Trace
 
 
+type IdentMap = [(String, Integer)]
+
+
 
 findAssign :: String -> [AST.Item] -> Either String AST.Expr
 findAssign name [] =
@@ -21,6 +24,7 @@ findAssign name (AST.Assign name' e : items) =
   if name == name' then return e else findAssign name items
 findAssign name (_ : items) =
   findAssign name items
+
 
 valueToInteger :: AST.Value -> Maybe Integer
 valueToInteger (AST.Value vs) =
@@ -31,6 +35,7 @@ valueToInteger (AST.Value vs) =
         AST.H -> Just (acc * 2 + 1)
         AST.L -> Just (acc * 2)
     ) 0 (reverse vs)
+
 
 truncateOrExtend :: VM.Expr -> Integer -> Integer -> VM.Expr
 truncateOrExtend expr bitsFrom bitsTo =
@@ -46,7 +51,8 @@ truncateOrExtendPair lhs lhsBits rhs rhsBits =
   let rhs' = truncateOrExtend rhs rhsBits bits in
   (lhs', rhs', bits)
 
-translateExpr :: [(String, Integer)] -> AST.Expr -> Either String (VM.Expr, Integer)
+
+translateExpr :: IdentMap -> AST.Expr -> Either String (VM.Expr, Integer)
 translateExpr wires e =
   case e of
     AST.Ternary cond t f -> do
@@ -143,8 +149,26 @@ translateExpr wires e =
       let (lhs'', rhs'', bits) = truncateOrExtendPair lhs' lhsBits rhs' rhsBits
       return (VM.Comparison op lhs'' rhs'' bits, 1)
 
-compile ::  [(String, Integer)] -> AST.Statement -> Either String VM.Flow
-compile = undefined
+
+translateStmt :: IdentMap -> IdentMap -> AST.Statement -> Either String VM.Flow
+translateStmt vars regs st =
+  case st of
+    AST.Block [st'] ->
+      translateStmt vars regs st'
+    AST.Block sts ->
+      foldl1 VM.Let <$> mapM (translateStmt vars regs) sts
+    AST.CaseZ cond cases ->
+      undefined
+    AST.If cond bt bf -> do
+      undefined
+    AST.NonBlocking reg val ->
+      case lookup reg regs of
+        Nothing ->
+          throwError ("reg not found: " ++ reg)
+        Just bits -> do
+          (expr, bits') <- translateExpr vars val
+          let expr' = truncateOrExtend expr bits' bits
+          return $ VM.With reg expr'
 
 
 translate :: AST.Module -> Either String VM.Module
@@ -160,7 +184,8 @@ translate (AST.Module{ AST.name, AST.params, AST.items }) = do
     throwError ("inputs cannot be registers")
 
   -- Validate all declared names
-  let allWires = concat [inWires, outWires, outRegs, stateWires, stateRegs]
+  let allRegs = outRegs ++ stateRegs
+  let allWires = concat [inWires, outWires, stateWires] ++ allRegs
   let ids = map fst allWires
   let duplicates = nub (ids \\ nub ids)
   unless (null duplicates) $
@@ -175,7 +200,7 @@ translate (AST.Module{ AST.name, AST.params, AST.items }) = do
   let alwaysBlocks = [(cond, st) | AST.Always cond st <- items]
 
   _ <- forM alwaysBlocks $ \(cond, st) -> do
-    flow <- compile allWires st
+    flow <- translateStmt allWires allRegs st
     throwError "DONE"
 
   Right $ VM.Module

@@ -37,7 +37,7 @@ data Expr
   deriving (Show)
 
 data Flow
-  = Case Expr (Maybe Flow) (Maybe Flow) (Maybe Flow) (Maybe Flow)
+  = If Expr Flow (Maybe Flow)
   | Let Flow Flow
   | With String Expr
   deriving (Show)
