@@ -45,7 +45,8 @@ main = do
         Left err -> do
           putStrLn (show err)
           exitWith (ExitFailure 1)
-        Right ast ->
+        Right ast -> do
+          putStrLn (show ast)
           putStrLn (show (translate ast))
     (_, files, errs) -> do
       putStrLn (concat errs ++ usageInfo "v_to_v [ARGS] INPUT" options)

@@ -7,9 +7,7 @@ module VM where
 import qualified AST
 
 
-data Record
-  = Record [(String, Integer)]
-  deriving (Show)
+type DeclMap = [(String, Integer)]
 
 data LogicalOp
   = And | Or | Xor
@@ -20,7 +18,7 @@ data ArithmeticOp
   deriving (Show)
 
 data ComparisonOp
-  = Gt | Eq | Ne
+  = Gt | Eq | Ne | EqZ
   deriving (Show)
 
 data Expr
@@ -30,23 +28,32 @@ data Expr
   | Arithmetic ArithmeticOp Expr Expr Integer
   | Comparison ComparisonOp Expr Expr Integer
   | Logical LogicalOp Expr Expr Integer
+  | Shl Expr Expr Integer Integer
   | Not Expr Integer
   | HorzOr Expr Integer
   | Const AST.Value
   | Ternary Expr Expr Expr Integer
+  | Cons [Expr] Integer
   deriving (Show)
 
 data Flow
-  = If Expr Flow (Maybe Flow)
-  | Let Flow Flow
-  | With String Expr
+  = If Expr Flow Flow
+  | Seq Flow Flow
+  | Assign String Expr
+  | Nop
+  deriving (Show)
+
+data Update
+  = Update (Maybe [(AST.Edge, String)]) Flow
   deriving (Show)
 
 data Module
   = Module
-    { stateTy :: Record
-    , inputTy :: Record
-    , outputTy :: Record
-    , wires :: [(String, Expr)]
+    { inWires    :: DeclMap
+    , outWires   :: DeclMap
+    , outRegs    :: DeclMap
+    , stateWires :: DeclMap
+    , stateRegs  :: DeclMap
+    , updates    :: [Update]
     }
   deriving (Show)

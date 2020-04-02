@@ -13,19 +13,6 @@ import qualified VM
 import Debug.Trace
 
 
-type IdentMap = [(String, Integer)]
-
-
-
-findAssign :: String -> [AST.Item] -> Either String AST.Expr
-findAssign name [] =
-  throwError ("wire " ++ name ++ " not assigned")
-findAssign name (AST.Assign name' e : items) =
-  if name == name' then return e else findAssign name items
-findAssign name (_ : items) =
-  findAssign name items
-
-
 valueToInteger :: AST.Value -> Maybe Integer
 valueToInteger (AST.Value vs) =
   foldM (\acc v ->
@@ -52,14 +39,14 @@ truncateOrExtendPair lhs lhsBits rhs rhsBits =
   (lhs', rhs', bits)
 
 
-translateExpr :: IdentMap -> AST.Expr -> Either String (VM.Expr, Integer)
+translateExpr :: VM.DeclMap -> AST.Expr -> Either String (VM.Expr, Integer)
 translateExpr wires e =
   case e of
     AST.Ternary cond t f -> do
       (cond', condBits) <- translateExpr wires cond
       let cond'' = truncateOrExtend cond' condBits 1
       (t', lhsBits) <- translateExpr wires t
-      (f', rhsBits) <- translateExpr wires t
+      (f', rhsBits) <- translateExpr wires f
       let (t'', f'', bits) = truncateOrExtendPair t' lhsBits f' rhsBits
       return (VM.Ternary cond'' t'' f'' bits, bits)
 
@@ -73,17 +60,18 @@ translateExpr wires e =
     AST.Eq lhs rhs -> comparison VM.Eq lhs rhs
     AST.Ne lhs rhs -> comparison VM.Ne lhs rhs
 
-    AST.Shl lhs rhs -> throwError "Shl"
+    AST.Shl lhs rhs -> do
+      (lhs', lhsBits) <- translateExpr wires lhs
+      (rhs', rhsBits) <- translateExpr wires rhs
+      return (VM.Shl lhs' rhs' lhsBits rhsBits, lhsBits)
 
     AST.Add lhs rhs -> arithmetic VM.Add lhs rhs
     AST.Sub lhs rhs -> arithmetic VM.Sub lhs rhs
 
     AST.Not arg -> do
       (arg', argBits) <- translateExpr wires arg
-      if argBits == 1
-        then return (VM.Not arg' argBits, 1)
-        else do
-          throwError "Not"
+      unless (argBits == 1) $ throwError "invalid ! width"
+      return (VM.Not arg' argBits, 1)
 
     AST.Inv arg -> do
       (arg', argBits) <- translateExpr wires arg
@@ -100,20 +88,15 @@ translateExpr wires e =
       when (st <= en) $ throwError "empty range"
       return (VM.Range arg' argBits st en, st - en + 1)
 
-    AST.Index arg (AST.Const v) ->
-      case valueToInteger v of
-        Nothing ->
-          throwError "invalid index"
-        Just idx -> do
-          (arg', argBits) <- translateExpr wires arg
-          when (idx >= argBits) $ throwError "bit out of range"
-          return (VM.Range arg' argBits idx idx, 1)
+    AST.Index arg idx -> do
+      (arg', argBits) <- translateExpr wires arg
+      when (idx >= argBits) $ throwError "bit out of range"
+      return (VM.Range arg' argBits idx idx, 1)
 
-    AST.Index arg idx ->
-      throwError "Index"
-
-    AST.Cons args ->
-      throwError "Cons"
+    AST.Cons args -> do
+      args' <- mapM (translateExpr wires) args
+      let bits = sum (map snd args')
+      return (VM.Cons (map fst args') bits, bits)
 
     AST.Ident var -> do
       case lookup var wires of
@@ -126,49 +109,72 @@ translateExpr wires e =
   where
     arithmetic op lhs rhs = do
       (lhs', lhsBits) <- translateExpr wires lhs
-      (rhs', rhsBits) <- translateExpr wires lhs
+      (rhs', rhsBits) <- translateExpr wires rhs
       let (lhs'', rhs'', bits) = truncateOrExtendPair lhs' lhsBits rhs' rhsBits
       return (VM.Arithmetic op lhs' rhs' bits, bits + 1)
 
     logical op lhs rhs = do
       (lhs', lhsBits) <- translateExpr wires lhs
-      (rhs', rhsBits) <- translateExpr wires lhs
+      (rhs', rhsBits) <- translateExpr wires rhs
       let lhs'' = truncateOrExtend lhs' lhsBits 1
       let rhs'' = truncateOrExtend rhs' rhsBits 1
       return (VM.Logical op lhs'' rhs'' 1, 1)
 
     bitwise op lhs rhs = do
       (lhs', lhsBits) <- translateExpr wires lhs
-      (rhs', rhsBits) <- translateExpr wires lhs
+      (rhs', rhsBits) <- translateExpr wires rhs
       let (lhs'', rhs'', bits) = truncateOrExtendPair lhs' lhsBits rhs' rhsBits
       return (VM.Logical op lhs'' rhs'' bits, bits)
 
     comparison op lhs rhs = do
       (lhs', lhsBits) <- translateExpr wires lhs
-      (rhs', rhsBits) <- translateExpr wires lhs
+      (rhs', rhsBits) <- translateExpr wires rhs
       let (lhs'', rhs'', bits) = truncateOrExtendPair lhs' lhsBits rhs' rhsBits
       return (VM.Comparison op lhs'' rhs'' bits, 1)
 
 
-translateStmt :: IdentMap -> IdentMap -> AST.Statement -> Either String VM.Flow
-translateStmt vars regs st =
+translateStmt :: VM.DeclMap -> VM.DeclMap -> AST.Statement -> Either String VM.Flow
+translateStmt wires regs st =
   case st of
+    AST.Block [] ->
+      return VM.Nop
     AST.Block [st'] ->
-      translateStmt vars regs st'
+      translateStmt wires regs st'
     AST.Block sts ->
-      foldl1 VM.Let <$> mapM (translateStmt vars regs) sts
+      foldl1 VM.Seq <$> mapM (translateStmt wires regs) sts
+
     AST.CaseZ cond cases ->
-      undefined
+      case lookup cond wires of
+        Nothing ->
+          throwError ("wire not found: " ++ cond)
+        Just bits -> do
+          let cond' = VM.Ident cond bits
+          cases' <- mapM (\(v, s) -> (v,) <$> translateStmt wires regs s) cases
+          foldM (\flow (v, c) -> translateCase bits cond' v c flow) VM.Nop cases'
+
     AST.If cond bt bf -> do
-      undefined
+      (cond', condBits) <- translateExpr wires cond
+      let cond'' = truncateOrExtend cond' condBits 1
+      bt' <- translateStmt wires regs bt
+      bf' <- case bf of
+        Nothing -> return VM.Nop
+        Just s -> translateStmt wires regs s
+      return (VM.If cond'' bt' bf')
+
     AST.NonBlocking reg val ->
       case lookup reg regs of
         Nothing ->
           throwError ("reg not found: " ++ reg)
         Just bits -> do
-          (expr, bits') <- translateExpr vars val
+          (expr, bits') <- translateExpr wires val
           let expr' = truncateOrExtend expr bits' bits
-          return $ VM.With reg expr'
+          return $ VM.Assign reg expr'
+  where
+    translateCase bits cond v c flow =
+      let AST.Value digits = v in
+      if bits /= toInteger (length digits)
+        then throwError "invalid case" :: Either String VM.Flow
+        else return $ VM.If (VM.Comparison VM.EqZ cond (VM.Const v) bits) c flow
 
 
 translate :: AST.Module -> Either String VM.Module
@@ -191,21 +197,28 @@ translate (AST.Module{ AST.name, AST.params, AST.items }) = do
   unless (null duplicates) $
     throwError ("duplicate IDs: " ++ intercalate ", " duplicates)
 
-  wires <- forM (outWires ++ stateWires) $ \(name, bits) -> do
-    expr <- findAssign name items
-    (expr', bits') <- translateExpr allWires expr
-    return (name, truncateOrExtend expr' bits' bits)
+  -- Translate all assignments
+  let assignments = [(dst, expr) | AST.Assign dst expr <- items]
+  assignUpdates <- forM assignments $ \(name, expr) ->
+    case lookup name (outWires ++ stateWires) of
+      Nothing -> throwError ("wire does no exist: " ++ name)
+      Just bits -> do
+        (expr', bits') <- translateExpr allWires expr
+        let expr'' = truncateOrExtend expr' bits' bits
+        return $ VM.Update Nothing (VM.Assign name expr'')
 
   -- Translate all always posedge blocks
   let alwaysBlocks = [(cond, st) | AST.Always cond st <- items]
 
-  _ <- forM alwaysBlocks $ \(cond, st) -> do
+  alwaysUpdates <- forM alwaysBlocks $ \(cond, st) -> do
     flow <- translateStmt allWires allRegs st
-    throwError "DONE"
+    return $ VM.Update (Just cond) flow
 
   Right $ VM.Module
-    { VM.stateTy = VM.Record stateRegs
-    , VM.inputTy = VM.Record $ inWires
-    , VM.outputTy = VM.Record $ outWires ++ outRegs
-    , VM.wires = wires
+    { VM.inWires    = inWires
+    , VM.outWires   = outWires
+    , VM.outRegs    = outRegs
+    , VM.stateWires = stateWires
+    , VM.stateRegs  = stateRegs
+    , VM.updates    = assignUpdates ++ alwaysUpdates
     }

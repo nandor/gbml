@@ -38,7 +38,7 @@ data Expr
   | Inv Expr
   | HorzOr Expr
   | Range Expr Integer Integer
-  | Index Expr Expr
+  | Index Expr Integer
   | Cons [Expr]
   | Ident String
   | Const Value
@@ -52,7 +52,7 @@ data Edge
 
 data Statement
   = Block [Statement]
-  | CaseZ Expr [(Value, Statement)]
+  | CaseZ String [(Value, Statement)]
   | If Expr Statement (Maybe Statement)
   | NonBlocking String Expr
   deriving (Show)
@@ -60,7 +60,7 @@ data Statement
 data Item
   = RegDecl String Integer
   | WireDecl String Integer
-  | Always [(Edge, Expr)] Statement
+  | Always [(Edge, String)] Statement
   | Assign String Expr
   deriving (Show)
 

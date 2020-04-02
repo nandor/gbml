@@ -221,7 +221,7 @@ expr = try ternary <|> or
           [ symbol "<<" *> return Shl
           ]
         arg <- additiveExpr
-        return $ \lhs -> BitAnd lhs arg
+        return $ \lhs -> Shl lhs arg
       return $ foldl (\x f -> f x) x xs
 
     additiveExpr = do
@@ -263,7 +263,7 @@ expr = try ternary <|> or
             rbracket
             return $ \e -> Range e idx en
           , do
-            idx <- expr
+            idx <- decimal
             rbracket
             return $ \e -> Index e idx
           ]
@@ -302,7 +302,7 @@ statement = msum
     switchStatement = do
       keyword "casez"
       lparen
-      cond <- expr
+      cond <- identifier
       rparen
       cases <- many1 $ do
         val <- value
@@ -344,11 +344,11 @@ itemWireDecl = do
   semi
   return $ WireDecl name width
 
-edge :: GenParser Char st (Edge, Expr)
+edge :: GenParser Char st (Edge, String)
 edge = msum
-  [ keyword "posedge" *> ((Pos, ) <$> expr)
-  , keyword "negedge" *> ((Neg, ) <$> expr)
-  , (All, ) <$> expr
+  [ keyword "posedge" *> ((Pos, ) <$> identifier)
+  , keyword "negedge" *> ((Neg, ) <$> identifier)
+  , (All, ) <$> identifier
   ]
 
 itemAlways :: GenParser Char st Item
